@@ -106,7 +106,20 @@
     "qrTitle": "Сканируйте. Импортируйте. Подключайтесь.",
     "qrHint": "Отсканируйте в клиентском приложении. Никому не показывайте этот код.",
     "saveQr": "Сохранить QR",
-    "historyUsage": "История трафика"
+    "historyUsage": "История трафика",
+    "tabQuota": "Квота",
+    "planQuota": "Квота плана",
+    "windowQuota": "Квота окна",
+    "resets": "Сброс",
+    "resetsIn": "{hours} ч {minutes} мин",
+    "resetsInDays": "{days} д {hours} ч",
+    "throttledNow": "Сейчас ограничен",
+    "currentUsage": "Использование в текущем периоде",
+    "period": {
+      "daily": "Ежедневно",
+      "weekly": "Еженедельно",
+      "monthly": "Ежемесячно"
+    }
   },
   "menu": {
     "theme": "Тема",

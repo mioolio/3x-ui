@@ -106,7 +106,20 @@
     "qrTitle": "扫码。导入。连接。",
     "qrHint": "使用客户端应用扫描。请勿泄露此二维码。",
     "saveQr": "保存二维码",
-    "historyUsage": "历史用量"
+    "historyUsage": "历史用量",
+    "tabQuota": "额度",
+    "planQuota": "计划配额",
+    "windowQuota": "窗口配额",
+    "resets": "重置",
+    "resetsIn": "{hours} 小时 {minutes} 分",
+    "resetsInDays": "{days} 天 {hours} 小时",
+    "throttledNow": "当前已降速",
+    "currentUsage": "当前周期用量",
+    "period": {
+      "daily": "每日",
+      "weekly": "每周",
+      "monthly": "每月"
+    }
   },
   "menu": {
     "theme": "主题",

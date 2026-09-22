@@ -106,7 +106,20 @@
     "qrTitle": "Tara. İçe aktar. Bağlan.",
     "qrHint": "İstemci uygulamanızla tarayın. Bu kodu kimseyle paylaşmayın.",
     "saveQr": "QR'ı kaydet",
-    "historyUsage": "Geçmiş Kullanım"
+    "historyUsage": "Geçmiş Kullanım",
+    "tabQuota": "Kota",
+    "planQuota": "Plan Kota",
+    "windowQuota": "Pencere Kota",
+    "resets": "Sıfırlama",
+    "resetsIn": "{hours} sa {minutes} dk",
+    "resetsInDays": "{days} g {hours} sa",
+    "throttledNow": "Şu anda kısıtlı",
+    "currentUsage": "Geçerli dönem kullanımı",
+    "period": {
+      "daily": "Günlük",
+      "weekly": "Haftalık",
+      "monthly": "Aylık"
+    }
   },
   "menu": {
     "theme": "Tema",

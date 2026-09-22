@@ -106,7 +106,20 @@
     "qrTitle": "スキャン。インポート。接続。",
     "qrHint": "クライアントアプリでスキャンしてください。このコードは他人に見せないでください。",
     "saveQr": "QR を保存",
-    "historyUsage": "履歴使用量"
+    "historyUsage": "履歴使用量",
+    "tabQuota": "容量",
+    "planQuota": "プラン容量",
+    "windowQuota": "ウィンドウ容量",
+    "resets": "リセット",
+    "resetsIn": "{hours}時間{minutes}分",
+    "resetsInDays": "{days}日{hours}時間",
+    "throttledNow": "現在速度制限中",
+    "currentUsage": "現在期間の使用量",
+    "period": {
+      "daily": "毎日",
+      "weekly": "毎週",
+      "monthly": "毎月"
+    }
   },
   "menu": {
     "theme": "テーマ",

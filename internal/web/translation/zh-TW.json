@@ -106,7 +106,20 @@
     "qrTitle": "掃描。匯入。連線。",
     "qrHint": "使用用戶端應用程式掃描。請勿外洩此 QR 碼。",
     "saveQr": "儲存 QR 碼",
-    "historyUsage": "歷史用量"
+    "historyUsage": "歷史用量",
+    "tabQuota": "額度",
+    "planQuota": "計畫配額",
+    "windowQuota": "視窗配額",
+    "resets": "重置",
+    "resetsIn": "{hours} 小時 {minutes} 分",
+    "resetsInDays": "{days} 天 {hours} 小時",
+    "throttledNow": "目前已降速",
+    "currentUsage": "目前週期用量",
+    "period": {
+      "daily": "每日",
+      "weekly": "每週",
+      "monthly": "每月"
+    }
   },
   "menu": {
     "theme": "主題",

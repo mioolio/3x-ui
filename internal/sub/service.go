@@ -585,6 +585,13 @@ func (s *SubService) AggregateTrafficByEmails(emails []string) (xray.ClientTraff
 			agg.Down = ct.Down
 			agg.HistoryUp = ct.HistoryUp
 			agg.HistoryDown = ct.HistoryDown
+			// Fence state is per email; a sub spanning several emails shows the
+			// first row's clocks, which is the common single-client case.
+			agg.WindowUsed = ct.WindowUsed
+			agg.WindowStarted = ct.WindowStarted
+			agg.PeriodUsed = ct.PeriodUsed
+			agg.PeriodStarted = ct.PeriodStarted
+			agg.ThrottledSince = ct.ThrottledSince
 			agg.Total = total
 			agg.ExpiryTime = subscriptionExpiryFromClient(now, expiry)
 			agg.ResetDay = resetDay
@@ -2943,6 +2950,7 @@ type PageData struct {
 	UploadByte    int64
 	TotalByte     int64
 	HistoryByte   int64 // lifetime up+down across resets, for the sub page
+	Quota         QuotaInfo
 	SubUrl        string
 	SubJsonUrl    string
 	SubClashUrl   string
@@ -3121,6 +3129,7 @@ func (s *SubService) BuildPageData(subId string, hostHeader string, traffic xray
 		UploadByte:    traffic.Up,
 		TotalByte:     traffic.Total,
 		HistoryByte:   traffic.HistoryUp + traffic.HistoryDown,
+		Quota:         s.QuotaDetails(subId, traffic),
 		SubUrl:        subURL,
 		SubJsonUrl:    subJsonURL,
 		SubClashUrl:   subClashURL,

@@ -106,7 +106,20 @@
     "qrTitle": "Quét. Nhập. Kết nối.",
     "qrHint": "Quét bằng ứng dụng khách. Không chia sẻ mã này cho người khác.",
     "saveQr": "Lưu QR",
-    "historyUsage": "Lượng dùng lịch sử"
+    "historyUsage": "Lượng dùng lịch sử",
+    "tabQuota": "Hạn mức",
+    "planQuota": "Hạn mức kế hoạch",
+    "windowQuota": "Hạn mức cửa sổ",
+    "resets": "Đặt lại",
+    "resetsIn": "{hours} giờ {minutes} phút",
+    "resetsInDays": "{days} ngày {hours} giờ",
+    "throttledNow": "Đang bị giới hạn",
+    "currentUsage": "Lượng dùng kỳ hiện tại",
+    "period": {
+      "daily": "Hàng ngày",
+      "weekly": "Hàng tuần",
+      "monthly": "Hàng tháng"
+    }
   },
   "menu": {
     "theme": "Chủ đề",

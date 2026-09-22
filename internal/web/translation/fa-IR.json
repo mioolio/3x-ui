@@ -106,7 +106,20 @@
     "qrTitle": "اسکن. افزودن. اتصال.",
     "qrHint": "با اپلیکیشن کلاینت اسکن کنید. این کد را به کسی ندهید.",
     "saveQr": "ذخیره QR",
-    "historyUsage": "مصرف تاریخی"
+    "historyUsage": "مصرف تاریخی",
+    "tabQuota": "سهمیه",
+    "planQuota": "سهمیه برنامه",
+    "windowQuota": "سهمیه پنجره",
+    "resets": "بازنشانی",
+    "resetsIn": "{hours} ساعت {minutes} دقیقه",
+    "resetsInDays": "{days} روز {hours} ساعت",
+    "throttledNow": "در حال حاضر کاهش سرعت",
+    "currentUsage": "مصرف دوره جاری",
+    "period": {
+      "daily": "روزانه",
+      "weekly": "هفتگی",
+      "monthly": "ماهانه"
+    }
   },
   "menu": {
     "theme": "تم",

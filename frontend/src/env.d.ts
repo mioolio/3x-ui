@@ -25,6 +25,7 @@ interface SubPageData {
   uploadByte?: string | number;
   usedByte?: string | number;
   historyByte?: string | number;
+  quota?: Record<string, string | number | undefined>;
 }
 
 interface Window {

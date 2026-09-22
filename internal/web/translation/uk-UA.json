@@ -106,7 +106,20 @@
     "qrTitle": "Скануйте. Імпортуйте. Підключайтеся.",
     "qrHint": "Відскануйте в клієнтському застосунку. Нікому не показуйте цей код.",
     "saveQr": "Зберегти QR",
-    "historyUsage": "Історія трафіку"
+    "historyUsage": "Історія трафіку",
+    "tabQuota": "Квота",
+    "planQuota": "Квота плану",
+    "windowQuota": "Квота вікна",
+    "resets": "Скидання",
+    "resetsIn": "{hours} год {minutes} хв",
+    "resetsInDays": "{days} д {hours} год",
+    "throttledNow": "Зараз обмежений",
+    "currentUsage": "Використання у поточному періоді",
+    "period": {
+      "daily": "Щодня",
+      "weekly": "Щотижня",
+      "monthly": "Щомісяця"
+    }
   },
   "menu": {
     "theme": "Тема",

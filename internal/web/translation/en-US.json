@@ -106,7 +106,20 @@
     "qrTitle": "Scan. Import. Connect.",
     "qrHint": "Scan with your client app. Keep this code private.",
     "saveQr": "Save QR",
-    "historyUsage": "History Usage"
+    "historyUsage": "History Usage",
+    "tabQuota": "Quota",
+    "planQuota": "Plan Quota",
+    "windowQuota": "Window Quota",
+    "resets": "Resets",
+    "resetsIn": "{hours}h {minutes}m",
+    "resetsInDays": "{days}d {hours}h",
+    "throttledNow": "Currently throttled",
+    "currentUsage": "Current period usage",
+    "period": {
+      "daily": "Daily",
+      "weekly": "Weekly",
+      "monthly": "Monthly"
+    }
   },
   "menu": {
     "theme": "Theme",

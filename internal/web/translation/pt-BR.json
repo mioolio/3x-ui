@@ -106,7 +106,20 @@
     "qrTitle": "Escaneie. Importe. Conecte.",
     "qrHint": "Escaneie com seu aplicativo cliente. Mantenha este código em sigilo.",
     "saveQr": "Salvar QR",
-    "historyUsage": "Uso histórico"
+    "historyUsage": "Uso histórico",
+    "tabQuota": "Cota",
+    "planQuota": "Cota do plano",
+    "windowQuota": "Cota da janela",
+    "resets": "Reinicia",
+    "resetsIn": "{hours} h {minutes} min",
+    "resetsInDays": "{days} d {hours} h",
+    "throttledNow": "Atualmente limitado",
+    "currentUsage": "Uso do período atual",
+    "period": {
+      "daily": "Diário",
+      "weekly": "Semanal",
+      "monthly": "Mensal"
+    }
   },
   "menu": {
     "theme": "Tema",

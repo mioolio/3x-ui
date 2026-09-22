@@ -7,6 +7,7 @@ import {
   ClockCircleOutlined,
   CustomerServiceOutlined,
   LinkOutlined,
+  PieChartOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons';
 
@@ -18,7 +19,9 @@ import SubConfigsTab from './SubConfigsTab';
 import SubHeader from './SubHeader';
 import SubHero from './SubHero';
 import SubLinksTab from './SubLinksTab';
+import SubQuotaTab from './SubQuotaTab';
 import { buildSubApps, daysUntil, detectPlatform, resolveSubStatus } from './subPageModel';
+import type { QuotaInfo } from './SubQuotaTab';
 import './SubPage.css';
 
 const subData = window.__SUB_PAGE_DATA__ || {};
@@ -130,6 +133,18 @@ export default function SubPage() {
         children: <SubAppsTab apps={apps} initialPlatform={initialPlatform} onOpen={open} />,
       });
     }
+    items.push({
+      key: 'quota',
+      icon: <PieChartOutlined />,
+      label: t('subscription.tabQuota'),
+      children: (
+        <SubQuotaTab
+          quota={(subData.quota as QuotaInfo) || {}}
+          usedLabel={subData.used || '0'}
+          totalLabel={subData.total || '∞'}
+        />
+      ),
+    });
     if (links.length > 0) {
       items.push({
         key: 'configs',

@@ -106,7 +106,20 @@
     "qrTitle": "امسح. استورد. اتصل.",
     "qrHint": "امسح الرمز بتطبيق العميل. لا تشارك هذا الرمز مع أحد.",
     "saveQr": "حفظ QR",
-    "historyUsage": "الاستخدام التاريخي"
+    "historyUsage": "الاستخدام التاريخي",
+    "tabQuota": "الحصة",
+    "planQuota": "حصة الخطة",
+    "windowQuota": "حصة النافذة",
+    "resets": "إعادة تعيين",
+    "resetsIn": "{hours} س {minutes} د",
+    "resetsInDays": "{days} ي {hours} س",
+    "throttledNow": "مقيّد حالياً",
+    "currentUsage": "استخدام الفترة الحالية",
+    "period": {
+      "daily": "يومي",
+      "weekly": "أسبوعي",
+      "monthly": "شهري"
+    }
   },
   "menu": {
     "theme": "الثيم",
