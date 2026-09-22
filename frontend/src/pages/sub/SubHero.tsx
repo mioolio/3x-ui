@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Progress, Tag, theme } from 'antd';
 
-import { IntlUtil } from '@/utils';
+import { IntlUtil, SizeFormatter } from '@/utils';
 import type { CalendarKind } from '@/utils';
 import { usagePercent } from './subPageModel';
 import type { SubStatus } from './subPageModel';
@@ -12,6 +12,7 @@ interface SubHeroProps {
   daysLeft: number | null;
   usedByte: number;
   totalByte: number;
+  historyByte: number;
   expireMs: number;
   lastOnlineMs: number;
   download: string;
@@ -42,6 +43,7 @@ export default function SubHero({
   daysLeft,
   usedByte,
   totalByte,
+  historyByte,
   expireMs,
   lastOnlineMs,
   download,
@@ -79,6 +81,15 @@ export default function SubHero({
     { key: 'down', label: t('subscription.downloaded'), value: <bdi>{download}</bdi> },
     { key: 'up', label: t('subscription.uploaded'), value: <bdi>{upload}</bdi> },
     { key: 'total', label: t('subscription.totalQuota'), value: <bdi>{total}</bdi> },
+    ...(historyByte > 0
+      ? [
+          {
+            key: 'history',
+            label: t('subscription.historyUsage'),
+            value: <bdi>{SizeFormatter.sizeFormat(historyByte)}</bdi>,
+          },
+        ]
+      : []),
     {
       key: 'lastOnline',
       label: t('lastOnline'),

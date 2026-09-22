@@ -90,6 +90,32 @@ func normalizeClientTrafficReset(c *model.Client) {
 	c.TrafficResetDay = normalizeTrafficResetDay(c.TrafficResetDay)
 }
 
+// Rejected rather than coerced: an unknown action string would silently fall
+// back to hard-disable in the traffic pipeline while the UI keeps showing the
+// operator's choice.
+func validateClientBandwidth(c *model.Client) error {
+	if c.SpeedLimitUp < 0 || c.SpeedLimitDown < 0 {
+		return common.NewError("client speed limits must not be negative")
+	}
+	for _, action := range []string{c.DepletionAction, c.WindowAction} {
+		switch action {
+		case "", "disable", "throttle":
+		default:
+			return common.NewError("client bandwidth action must be disable or throttle, got:", action)
+		}
+	}
+	if c.DepletionAction != "" && c.DepletionSpeed < 0 {
+		return common.NewError("client depletionSpeed must not be negative")
+	}
+	if c.WindowQuotaGB < 0 || c.WindowMinutes < 0 || c.WindowSpeed < 0 {
+		return common.NewError("client quota window fields must not be negative")
+	}
+	if c.WindowMinutes == 0 && (c.WindowQuotaGB != 0 || c.WindowAction != "" || c.WindowSpeed != 0) {
+		return common.NewError("client quota window requires windowMinutes > 0")
+	}
+	return nil
+}
+
 // ClientResetCycle is the slice of a client the reset job needs: enough to know
 // whether it is due, and whether its disable is the quota's doing or the operator's.
 type ClientResetCycle struct {
@@ -144,6 +170,9 @@ func (s *ClientService) Create(inboundSvc *InboundService, payload *ClientCreate
 		return false, err
 	}
 	if err := validateClientTrafficReset(client.TrafficReset, client.TrafficResetDay); err != nil {
+		return false, err
+	}
+	if err := validateClientBandwidth(&client); err != nil {
 		return false, err
 	}
 	normalizeClientTrafficReset(&client)
@@ -598,6 +627,9 @@ func (s *ClientService) Update(inboundSvc *InboundService, id int, updated model
 		return false, err
 	}
 	if err := validateClientTrafficReset(updated.TrafficReset, updated.TrafficResetDay); err != nil {
+		return false, err
+	}
+	if err := validateClientBandwidth(&updated); err != nil {
 		return false, err
 	}
 	normalizeClientTrafficReset(&updated)

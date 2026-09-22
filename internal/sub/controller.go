@@ -678,6 +678,7 @@ func (a *SUBController) subPageContext(page PageData) map[string]any {
 		"downloadByte":  page.DownloadByte,
 		"uploadByte":    page.UploadByte,
 		"totalByte":     page.TotalByte,
+		"historyByte":   page.HistoryByte,
 		"subUrl":        page.SubUrl,
 		"subJsonUrl":    page.SubJsonUrl,
 		"subClashUrl":   page.SubClashUrl,

@@ -448,6 +448,12 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 		injectNodeEgresses(xrayConfig, nodes)
 	}
 
+	// Per-client bandwidth throttling: a loopback egress inbound, one socks
+	// outbound per currently limited client, and prepended user-routing rules.
+	// Done last so the throttle rules outrank every admin rule in the final
+	// routing section.
+	injectThrottling(xrayConfig, s.inboundService.ThrottleLimits())
+
 	return xrayConfig, nil
 }
 

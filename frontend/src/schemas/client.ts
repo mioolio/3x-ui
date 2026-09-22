@@ -13,6 +13,8 @@ export const ClientTrafficSchema = z.object({
   up: z.number().optional(),
   down: z.number().optional(),
   total: z.number().optional(),
+  historyUp: z.number().optional(),
+  historyDown: z.number().optional(),
   expiryTime: z.number().optional(),
   enable: z.boolean().optional(),
   lastOnline: z.number().optional(),
@@ -44,6 +46,17 @@ export const ClientRecordSchema = z
     resetMax: z.number().optional(),
     trafficReset: z.string().optional(),
     trafficResetDay: z.number().optional(),
+    speedLimitUp: z.number().optional(),
+    speedLimitDown: z.number().optional(),
+    depletionAction: z.string().optional(),
+    depletionSpeed: z.number().optional(),
+    depletionGraceDays: z.number().optional(),
+    depletionPeriod: z.string().optional(),
+    depletionPeriodGB: z.number().optional(),
+    windowQuotaGB: z.number().optional(),
+    windowMinutes: z.number().optional(),
+    windowAction: z.string().optional(),
+    windowSpeed: z.number().optional(),
     inboundIds: nullableNumberArray.optional(),
     traffic: ClientTrafficSchema.nullable().optional(),
     reverse: z.object({ tag: z.string().optional() }).loose().nullable().optional(),
@@ -310,6 +323,8 @@ export function hasForbiddenClientChars(value: string): boolean {
   return false;
 }
 
+export const BandwidthActionSchema = z.enum(['', 'disable', 'throttle']);
+
 export const ClientFormSchema = z.object({
   email: z
     .string()
@@ -338,6 +353,19 @@ export const ClientFormSchema = z.object({
   comment: z.string(),
   enable: z.boolean(),
   inboundIds: z.array(z.number()),
+  // Kbps caps, 0 = unlimited. windowQuotaGB is entered in GB and converted to
+  // bytes on submit, mirroring totalGB.
+  speedLimitUp: z.number().min(0),
+  speedLimitDown: z.number().min(0),
+  depletionAction: BandwidthActionSchema,
+  depletionSpeed: z.number().min(0),
+  depletionGraceDays: z.number().int().min(0),
+  depletionPeriod: z.enum(['never', 'daily', 'weekly', 'monthly']),
+  depletionPeriodGB: z.number().min(0),
+  windowQuotaGB: z.number().min(0),
+  windowMinutes: z.number().int().min(0),
+  windowAction: BandwidthActionSchema,
+  windowSpeed: z.number().min(0),
 });
 
 export const ClientCreateFormSchema = ClientFormSchema.extend({

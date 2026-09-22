@@ -51,6 +51,8 @@ type Inbound struct {
 	Up                   int64                `json:"up" form:"up"`                                                                                                                                                 // Upload traffic in bytes
 	Down                 int64                `json:"down" form:"down"`                                                                                                                                             // Download traffic in bytes
 	Total                int64                `json:"total" form:"total"`                                                                                                                                           // Total traffic limit in bytes
+	HistoryUp            int64                `json:"historyUp" form:"historyUp" gorm:"column:history_up;default:0"`                                                                                                // Lifetime upload, never reset by traffic resets
+	HistoryDown          int64                `json:"historyDown" form:"historyDown" gorm:"column:history_down;default:0"`                                                                                          // Lifetime download, never reset by traffic resets
 	Remark               string               `json:"remark" form:"remark" example:"VLESS-443"`                                                                                                                     // Human-readable remark
 	SubSortIndex         int                  `json:"subSortIndex" form:"subSortIndex" gorm:"default:1" validate:"omitempty" example:"1"`                                                                           // Sort order of this inbound's links in subscription output only (lower first; negatives allowed; 0/omitted → 1; ties by id)
 	Enable               bool                 `json:"enable" form:"enable" gorm:"index:idx_enable_traffic_reset,priority:1" example:"true"`                                                                         // Whether the inbound is enabled
@@ -73,6 +75,20 @@ type Inbound struct {
 	ShareAddr         string   `json:"shareAddr" form:"shareAddr" gorm:"column:share_addr"`
 
 	DisableFlow bool `json:"disableFlow" form:"disableFlow" gorm:"column:disable_flow;default:false" example:"false"`
+
+	// Per-inbound traffic plan, applied to every client on this inbound unless
+	// the client carries its own stronger setting. All opt-in (zero values).
+	// Plan is a daily/weekly/monthly fence; Window is a short quota window in
+	// minutes (e.g. 500MB per 2h). Enforcement is per client, aligned to its
+	// first use.
+	PlanPeriod     string `json:"planPeriod,omitempty" form:"planPeriod" gorm:"column:plan_period;default:''" validate:"omitempty,oneof=daily weekly monthly"`
+	PlanQuotaGB    int64  `json:"planQuotaGB,omitempty" form:"planQuotaGB" gorm:"column:plan_quota_gb;default:0"`
+	PlanAction     string `json:"planAction,omitempty" form:"planAction" gorm:"column:plan_action;default:''" validate:"omitempty,oneof=disable throttle"`
+	PlanSpeed      int    `json:"planSpeed,omitempty" form:"planSpeed" gorm:"column:plan_speed;default:0"`
+	WindowQuotaGB  int64  `json:"windowQuotaGB,omitempty" form:"windowQuotaGB" gorm:"column:window_quota_gb;default:0"`
+	WindowMinutes  int    `json:"windowMinutes,omitempty" form:"windowMinutes" gorm:"column:window_minutes;default:0"`
+	WindowAction   string `json:"windowAction,omitempty" form:"windowAction" gorm:"column:window_action;default:''" validate:"omitempty,oneof=disable throttle"`
+	WindowSpeed    int    `json:"windowSpeed,omitempty" form:"windowSpeed" gorm:"column:window_speed;default:0"`
 
 	// OriginNodeGuid is the panelGuid of the node that physically hosts this
 	// inbound, propagated up across hops (#4983). Empty for an inbound that
@@ -910,6 +926,19 @@ type Client struct {
 	// Per-client traffic reset cycle, independent of the inbound's own (#5497).
 	TrafficReset    string `json:"trafficReset,omitempty" form:"trafficReset" validate:"omitempty,oneof=never hourly daily weekly monthly"`
 	TrafficResetDay int    `json:"trafficResetDay,omitempty" form:"trafficResetDay" validate:"omitempty,gte=1,lte=31"`
+	// Per-client bandwidth controls, all opt-in: zero values keep the legacy
+	// behaviour (unlimited speed, disable on depletion, no quota window).
+	SpeedLimitUp     int    `json:"speedLimitUp,omitempty" form:"speedLimitUp" validate:"omitempty,gte=0"`  // Always-on cap, Kbps
+	SpeedLimitDown   int    `json:"speedLimitDown,omitempty" form:"speedLimitDown" validate:"omitempty,gte=0"` // Always-on cap, Kbps
+	DepletionAction  string `json:"depletionAction,omitempty" form:"depletionAction" validate:"omitempty,oneof=disable throttle"` // On quota/expiry exhaustion
+	DepletionSpeed   int    `json:"depletionSpeed,omitempty" form:"depletionSpeed" validate:"omitempty,gte=0"` // Kbps while depletion-throttled
+	DepletionGraceDays int  `json:"depletionGraceDays,omitempty" form:"depletionGraceDays" validate:"omitempty,gte=0"` // Max days of depletion throttling; 0 = unlimited
+	DepletionPeriod  string `json:"depletionPeriod,omitempty" form:"depletionPeriod" validate:"omitempty,oneof=daily weekly monthly"` // Traffic cap while depletion-throttled
+	DepletionPeriodGB int64 `json:"depletionPeriodGB,omitempty" form:"depletionPeriodGB" validate:"omitempty,gte=0"` // Bytes per depletion-throttle period
+	WindowQuotaGB    int64  `json:"windowQuotaGB,omitempty" form:"windowQuotaGB" validate:"omitempty,gte=0"` // Bytes per sliding window, like totalGB
+	WindowMinutes    int    `json:"windowMinutes,omitempty" form:"windowMinutes" validate:"omitempty,gte=0"` // Window length; 0 disables the quota
+	WindowAction     string `json:"windowAction,omitempty" form:"windowAction" validate:"omitempty,oneof=disable throttle"` // On window overrun
+	WindowSpeed      int    `json:"windowSpeed,omitempty" form:"windowSpeed" validate:"omitempty,gte=0"` // Kbps while window-throttled
 	CreatedAt       int64  `json:"created_at,omitempty"` // Creation timestamp
 	UpdatedAt       int64  `json:"updated_at,omitempty"` // Last update timestamp
 }
@@ -945,6 +974,17 @@ type ClientRecord struct {
 	ResetMax        int    `json:"resetMax" gorm:"column:reset_max;default:0"`
 	TrafficReset    string `json:"trafficReset" gorm:"column:traffic_reset;default:never;index:idx_clients_traffic_reset"`
 	TrafficResetDay int    `json:"trafficResetDay" gorm:"column:traffic_reset_day;default:1"`
+	SpeedLimitUp       int    `json:"speedLimitUp" gorm:"column:speed_limit_up;default:0"`
+	SpeedLimitDown     int    `json:"speedLimitDown" gorm:"column:speed_limit_down;default:0"`
+	DepletionAction    string `json:"depletionAction" gorm:"column:depletion_action;default:''"`
+	DepletionSpeed     int    `json:"depletionSpeed" gorm:"column:depletion_speed;default:0"`
+	DepletionGraceDays int    `json:"depletionGraceDays" gorm:"column:depletion_grace_days;default:0"`
+	DepletionPeriod    string `json:"depletionPeriod" gorm:"column:depletion_period;default:''"`
+	DepletionPeriodGB  int64  `json:"depletionPeriodGB" gorm:"column:depletion_period_gb;default:0"`
+	WindowQuotaGB   int64  `json:"windowQuotaGB" gorm:"column:window_quota_gb;default:0"`
+	WindowMinutes   int    `json:"windowMinutes" gorm:"column:window_minutes;default:0"`
+	WindowAction    string `json:"windowAction" gorm:"column:window_action;default:''"`
+	WindowSpeed     int    `json:"windowSpeed" gorm:"column:window_speed;default:0"`
 	CreatedAt       int64  `json:"createdAt" gorm:"autoCreateTime:milli"`
 	UpdatedAt       int64  `json:"updatedAt" gorm:"autoUpdateTime:milli"`
 	// Owned solely by the node-snapshot sweep, which soft-orphans instead of
@@ -1083,7 +1123,6 @@ type Host struct {
 	Path                   string   `json:"path" form:"path"`
 	Alpn                   []string `json:"alpn" form:"alpn" gorm:"serializer:json"`
 	Fingerprint            string   `json:"fingerprint" form:"fingerprint"`
-	CipherSuites           string   `json:"cipherSuites" form:"cipherSuites" gorm:"column:cipher_suites"`
 	OverrideSniFromAddress bool     `json:"overrideSniFromAddress" form:"overrideSniFromAddress" gorm:"column:override_sni_from_address"`
 	KeepSniBlank           bool     `json:"keepSniBlank" form:"keepSniBlank" gorm:"column:keep_sni_blank"`
 	PinnedPeerCertSha256   []string `json:"pinnedPeerCertSha256" form:"pinnedPeerCertSha256" gorm:"serializer:json;column:pinned_peer_cert_sha256"`
@@ -1160,6 +1199,18 @@ func (c *Client) ToRecord() *ClientRecord {
 		CreatedAt:       c.CreatedAt,
 		UpdatedAt:       c.UpdatedAt,
 
+		SpeedLimitUp:       c.SpeedLimitUp,
+		SpeedLimitDown:     c.SpeedLimitDown,
+		DepletionAction:    c.DepletionAction,
+		DepletionSpeed:     c.DepletionSpeed,
+		DepletionGraceDays: c.DepletionGraceDays,
+		DepletionPeriod:    c.DepletionPeriod,
+		DepletionPeriodGB:  c.DepletionPeriodGB,
+		WindowQuotaGB:   c.WindowQuotaGB,
+		WindowMinutes:   c.WindowMinutes,
+		WindowAction:    c.WindowAction,
+		WindowSpeed:     c.WindowSpeed,
+
 		PrivateKey:     c.PrivateKey,
 		PublicKey:      c.PublicKey,
 		AllowedIPs:     strings.Join(c.AllowedIPs, ","),
@@ -1217,6 +1268,18 @@ func (r *ClientRecord) ToClient() *Client {
 		TrafficResetDay: r.TrafficResetDay,
 		CreatedAt:       r.CreatedAt,
 		UpdatedAt:       r.UpdatedAt,
+
+		SpeedLimitUp:       r.SpeedLimitUp,
+		SpeedLimitDown:     r.SpeedLimitDown,
+		DepletionAction:    r.DepletionAction,
+		DepletionSpeed:     r.DepletionSpeed,
+		DepletionGraceDays: r.DepletionGraceDays,
+		DepletionPeriod:    r.DepletionPeriod,
+		DepletionPeriodGB:  r.DepletionPeriodGB,
+		WindowQuotaGB:   r.WindowQuotaGB,
+		WindowMinutes:   r.WindowMinutes,
+		WindowAction:    r.WindowAction,
+		WindowSpeed:     r.WindowSpeed,
 
 		PrivateKey:     r.PrivateKey,
 		PublicKey:      r.PublicKey,
@@ -1405,6 +1468,75 @@ func MergeClientRecord(existing *ClientRecord, incoming *ClientRecord) []ClientM
 		if incomingNewer || existing.TrafficResetDay == 0 {
 			keep("trafficResetDay", existing.TrafficResetDay, incoming.TrafficResetDay, incoming.TrafficResetDay)
 			existing.TrafficResetDay = incoming.TrafficResetDay
+		}
+	}
+	// Bandwidth controls follow the same retain-what-is-set merge: an incoming
+	// zero means "unset", so clearing one of these on the master cannot reach a
+	// node through the merge and must go through a full reconcile instead.
+	if existing.SpeedLimitUp != incoming.SpeedLimitUp && incoming.SpeedLimitUp != 0 {
+		if incomingNewer || existing.SpeedLimitUp == 0 {
+			keep("speedLimitUp", existing.SpeedLimitUp, incoming.SpeedLimitUp, incoming.SpeedLimitUp)
+			existing.SpeedLimitUp = incoming.SpeedLimitUp
+		}
+	}
+	if existing.SpeedLimitDown != incoming.SpeedLimitDown && incoming.SpeedLimitDown != 0 {
+		if incomingNewer || existing.SpeedLimitDown == 0 {
+			keep("speedLimitDown", existing.SpeedLimitDown, incoming.SpeedLimitDown, incoming.SpeedLimitDown)
+			existing.SpeedLimitDown = incoming.SpeedLimitDown
+		}
+	}
+	if existing.DepletionAction != incoming.DepletionAction && incoming.DepletionAction != "" {
+		if incomingNewer || existing.DepletionAction == "" {
+			keep("depletionAction", existing.DepletionAction, incoming.DepletionAction, incoming.DepletionAction)
+			existing.DepletionAction = incoming.DepletionAction
+		}
+	}
+	if existing.DepletionSpeed != incoming.DepletionSpeed && incoming.DepletionSpeed != 0 {
+		if incomingNewer || existing.DepletionSpeed == 0 {
+			keep("depletionSpeed", existing.DepletionSpeed, incoming.DepletionSpeed, incoming.DepletionSpeed)
+			existing.DepletionSpeed = incoming.DepletionSpeed
+		}
+	}
+	if existing.WindowQuotaGB != incoming.WindowQuotaGB && incoming.WindowQuotaGB != 0 {
+		if incomingNewer || existing.WindowQuotaGB == 0 {
+			keep("windowQuotaGB", existing.WindowQuotaGB, incoming.WindowQuotaGB, incoming.WindowQuotaGB)
+			existing.WindowQuotaGB = incoming.WindowQuotaGB
+		}
+	}
+	if existing.WindowMinutes != incoming.WindowMinutes && incoming.WindowMinutes != 0 {
+		if incomingNewer || existing.WindowMinutes == 0 {
+			keep("windowMinutes", existing.WindowMinutes, incoming.WindowMinutes, incoming.WindowMinutes)
+			existing.WindowMinutes = incoming.WindowMinutes
+		}
+	}
+	if existing.WindowAction != incoming.WindowAction && incoming.WindowAction != "" {
+		if incomingNewer || existing.WindowAction == "" {
+			keep("windowAction", existing.WindowAction, incoming.WindowAction, incoming.WindowAction)
+			existing.WindowAction = incoming.WindowAction
+		}
+	}
+	if existing.WindowSpeed != incoming.WindowSpeed && incoming.WindowSpeed != 0 {
+		if incomingNewer || existing.WindowSpeed == 0 {
+			keep("windowSpeed", existing.WindowSpeed, incoming.WindowSpeed, incoming.WindowSpeed)
+			existing.WindowSpeed = incoming.WindowSpeed
+		}
+	}
+	if existing.DepletionGraceDays != incoming.DepletionGraceDays && incoming.DepletionGraceDays != 0 {
+		if incomingNewer || existing.DepletionGraceDays == 0 {
+			keep("depletionGraceDays", existing.DepletionGraceDays, incoming.DepletionGraceDays, incoming.DepletionGraceDays)
+			existing.DepletionGraceDays = incoming.DepletionGraceDays
+		}
+	}
+	if existing.DepletionPeriod != incoming.DepletionPeriod && incoming.DepletionPeriod != "" {
+		if incomingNewer || existing.DepletionPeriod == "" {
+			keep("depletionPeriod", existing.DepletionPeriod, incoming.DepletionPeriod, incoming.DepletionPeriod)
+			existing.DepletionPeriod = incoming.DepletionPeriod
+		}
+	}
+	if existing.DepletionPeriodGB != incoming.DepletionPeriodGB && incoming.DepletionPeriodGB != 0 {
+		if incomingNewer || existing.DepletionPeriodGB == 0 {
+			keep("depletionPeriodGB", existing.DepletionPeriodGB, incoming.DepletionPeriodGB, incoming.DepletionPeriodGB)
+			existing.DepletionPeriodGB = incoming.DepletionPeriodGB
 		}
 	}
 	if existing.Reverse != incoming.Reverse && incoming.Reverse != "" {

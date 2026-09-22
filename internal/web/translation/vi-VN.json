@@ -105,7 +105,8 @@
     "support": "Hỗ trợ",
     "qrTitle": "Quét. Nhập. Kết nối.",
     "qrHint": "Quét bằng ứng dụng khách. Không chia sẻ mã này cho người khác.",
-    "saveQr": "Lưu QR"
+    "saveQr": "Lưu QR",
+    "historyUsage": "Lượng dùng lịch sử"
   },
   "menu": {
     "theme": "Chủ đề",
@@ -617,7 +618,7 @@
         "customSockopt": "Sockopt tùy chỉnh",
         "addCustomOption": "Thêm tùy chọn",
         "serverNameIndication": "SNI",
-        "cipherSuites": "Bộ mật mã",
+        "cipherSuites": "Cipher Suites",
         "autoOption": "Tự động",
         "minMaxVersion": "Phiên bản Min/Max",
         "rejectUnknownSni": "Từ chối SNI lạ",
@@ -711,7 +712,20 @@
         "peerNumberConfig": "Cấu hình Peer {n}"
       },
       "sniffingDestOverride": "Ghi đè đích",
-      "advancedTitle": "Cài đặt nâng cao"
+      "advancedTitle": "Cài đặt nâng cao",
+      "plan": {
+        "period": "Chu kỳ kế hoạch lưu lượng",
+        "periodHelp": "Hạn mức theo kỳ cho từng client trên inbound này, tính từ lần sử dụng đầu tiên của từng client. Client có thể ghi đè bằng cài đặt riêng.",
+        "disabled": "Tắt",
+        "quota": "Hạn mức mỗi kỳ (GB)",
+        "quotaHelp": "Lưu lượng mỗi client dùng được mỗi kỳ kế hoạch; hạn mức tổng vẫn ưu tiên áp dụng trước.",
+        "action": "Khi vượt",
+        "speed": "Tốc độ giới hạn (Kbps)",
+        "windowQuota": "Hạn mức cửa sổ (GB)",
+        "windowQuotaHelp": "Cửa sổ hạn mức ngắn (vd. 500MB mỗi 2 giờ) ngoài kỳ kế hoạch; theo từng client, từ lần dùng đầu.",
+        "windowMinutes": "Độ dài cửa sổ (phút)",
+        "windowMinutesHelp": "Độ dài của cửa sổ hạn mức, vd. 120 = hai giờ; 0 = tắt."
+      }
     },
     "clients": {
       "tabBasics": "Cơ bản",
@@ -946,7 +960,35 @@
       "renewOnDayDesc": "Gia hạn vào ngày này của mỗi tháng dương lịch, lúc nửa đêm theo múi giờ của bảng điều khiển, thay vì mỗi N ngày. Tháng không có ngày đã chọn sẽ gia hạn vào ngày cuối cùng của tháng. 0 giữ nguyên chế độ khoảng cách theo ngày.",
       "renewsUsed": "Số lần gia hạn đã dùng",
       "tuicTotalGBDesc": "TUIC does not support per-client traffic limits; set traffic limit on the inbound instead.",
-      "bulkAdTagHint": "Nhập thẻ hex 32 ký tự để đặt hoặc 'none' để xóa kênh tài trợ trên MTProto."
+      "bulkAdTagHint": "Nhập thẻ hex 32 ký tự để đặt hoặc 'none' để xóa kênh tài trợ trên MTProto.",
+      "speedLimitUp": "Giới hạn tốc độ tải lên (Kbps)",
+      "speedLimitUpDesc": "Giới hạn tải lên thường trực cho client này. 0 = không giới hạn.",
+      "speedLimitDown": "Giới hạn tốc độ tải xuống (Kbps)",
+      "speedLimitDownDesc": "Giới hạn tải xuống thường trực cho client này. 0 = không giới hạn.",
+      "depletionAction": "Khi hết hạn mức/hết hạn",
+      "depletionActionDesc": "Khi đạt giới hạn lưu lượng hoặc hết hạn: vô hiệu hóa client (mặc định) hoặc giữ kết nối ở tốc độ giảm.",
+      "depletionSpeed": "Tốc độ giới hạn (Kbps)",
+      "depletionSpeedDesc": "Giới hạn tải lên/tải xuống áp dụng sau khi hết hạn mức hoặc hết hạn.",
+      "windowQuotaGB": "Hạn mức cửa sổ (GB)",
+      "windowQuotaGBDesc": "Lưu lượng cho phép mỗi cửa sổ hạn mức, ngoài giới hạn tổng. 0 = tắt.",
+      "windowMinutes": "Độ dài cửa sổ (phút)",
+      "windowMinutesDesc": "Độ dài của cửa sổ hạn mức; tự động trượt. 0 = tắt.",
+      "windowAction": "Khi vượt cửa sổ",
+      "windowActionDesc": "Khi vượt hạn mức cửa sổ: giới hạn hoặc vô hiệu hóa cho đến khi cửa sổ đặt lại.",
+      "windowSpeed": "Tốc độ giới hạn cửa sổ (Kbps)",
+      "windowSpeedDesc": "Giới hạn tốc độ áp dụng trong khi vượt hạn mức cửa sổ.",
+      "bandwidthAction": {
+        "default": "Mặc định (Vô hiệu hóa)",
+        "disable": "Vô hiệu hóa",
+        "throttle": "Giới hạn"
+      },
+      "days": "ngày",
+      "depletionGraceDays": "Thời gian ân hạn (ngày)",
+      "depletionGraceDaysDesc": "Client được giữ ở tốc độ giới hạn bao nhiêu ngày sau khi hết hạn mức trước khi bị vô hiệu hóa. 0 = không giới hạn.",
+      "depletionPeriod": "Giới hạn lưu lượng khi bị giới hạn",
+      "depletionPeriodDesc": "Lưu lượng tối đa mỗi kỳ trong khi client bị giới hạn; hết thì bị vô hiệu hóa đến khi kỳ trượt. Tắt = không giới hạn.",
+      "depletionPeriodGB": "Giới hạn mỗi kỳ (GB)",
+      "depletionPeriodGBDesc": "Lưu lượng cho phép trong mỗi kỳ giới hạn."
     },
     "groups": {
       "name": "Tên",
@@ -2433,8 +2475,7 @@
       "disableSuccess": "✅ {{ .Email }} : Đã Tắt Thành Công.",
       "askToAddUserId": "Cấu hình của bạn không được tìm thấy!\r\nVui lòng yêu cầu Quản trị viên sử dụng ID người dùng telegram của bạn trong cấu hình của bạn.\r\n\r\nID người dùng của bạn: <code>{{ .TgUserID }}</code>",
       "chooseClient": "Chọn một Khách hàng cho Inbound {{ .Inbound }}",
-      "chooseInbound": "Chọn một Inbound",
-      "qrCodeForClient": "Mã QR cho khách hàng {{ .Email }}:"
+      "chooseInbound": "Chọn một Inbound"
     }
   },
   "discord": {
@@ -2541,5 +2582,6 @@
     "restartXray": "Khởi động lại dịch vụ Xray",
     "restartXraySuccess": "Dịch vụ Xray đã được khởi động lại thành công",
     "settings": "Cài đặt"
-  }
+  },
+  "historyUsage": "Lượng dùng lịch sử"
 }

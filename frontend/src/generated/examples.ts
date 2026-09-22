@@ -353,6 +353,11 @@ export const EXAMPLES: Record<string, unknown> = {
     "auth": "",
     "comment": "",
     "created_at": 0,
+    "depletionAction": "disable",
+    "depletionGraceDays": 0,
+    "depletionPeriod": "daily",
+    "depletionPeriodGB": 0,
+    "depletionSpeed": 0,
     "email": "",
     "enable": false,
     "expiryTime": 0,
@@ -372,12 +377,18 @@ export const EXAMPLES: Record<string, unknown> = {
     "reverse": null,
     "secret": "ee1234567890abcdef1234567890abcd7777772e636c6f7564666c6172652e636f6d",
     "security": "",
+    "speedLimitDown": 0,
+    "speedLimitUp": 0,
     "subId": "",
     "tgId": 0,
     "totalGB": 0,
     "trafficReset": "never",
     "trafficResetDay": 1,
-    "updated_at": 0
+    "updated_at": 0,
+    "windowAction": "disable",
+    "windowMinutes": 0,
+    "windowQuotaGB": 0,
+    "windowSpeed": 0
   },
   "ClientInbound": {
     "clientId": 0,
@@ -440,6 +451,11 @@ export const EXAMPLES: Record<string, unknown> = {
     "auth": "",
     "comment": "",
     "createdAt": 0,
+    "depletionAction": "",
+    "depletionGraceDays": 0,
+    "depletionPeriod": "",
+    "depletionPeriodGB": 0,
+    "depletionSpeed": 0,
     "email": "",
     "enable": false,
     "expiryTime": 0,
@@ -460,13 +476,19 @@ export const EXAMPLES: Record<string, unknown> = {
     "reverse": null,
     "secret": "",
     "security": "",
+    "speedLimitDown": 0,
+    "speedLimitUp": 0,
     "subId": "",
     "tgId": 0,
     "totalGB": 0,
     "trafficReset": "",
     "trafficResetDay": 0,
     "updatedAt": 0,
-    "uuid": ""
+    "uuid": "",
+    "windowAction": "",
+    "windowMinutes": 0,
+    "windowQuotaGB": 0,
+    "windowSpeed": 0
   },
   "ClientReverse": {
     "tag": ""
@@ -497,6 +519,8 @@ export const EXAMPLES: Record<string, unknown> = {
     "email": "user1",
     "enable": true,
     "expiryTime": 1735689600000,
+    "historyDown": 20971520,
+    "historyUp": 10485760,
     "id": 14825,
     "inboundId": 1,
     "lastOnline": 1735680000000,
@@ -506,9 +530,13 @@ export const EXAMPLES: Record<string, unknown> = {
     "resetDay": 0,
     "resetMax": 0,
     "subId": "i7tvdpeffi0hvvf1",
+    "throttledSince": 1735680000000,
     "total": 10737418240,
     "up": 1048576,
-    "uuid": "e18c9a96-71bf-48d4-933f-8b9a46d4290c"
+    "uuid": "e18c9a96-71bf-48d4-933f-8b9a46d4290c",
+    "windowDisabled": false,
+    "windowStarted": 1735680000000,
+    "windowUsed": 1048576
   },
   "ClientsSummary": {
     "active": 1850,
@@ -591,7 +619,6 @@ export const EXAMPLES: Record<string, unknown> = {
     "alpn": [
       ""
     ],
-    "cipherSuites": "",
     "createdAt": 0,
     "echConfigList": "",
     "excludeFromSubTypes": [
@@ -637,7 +664,6 @@ export const EXAMPLES: Record<string, unknown> = {
     "alpn": [
       ""
     ],
-    "cipherSuites": "",
     "echConfigList": "",
     "excludeFromSubTypes": [
       ""
@@ -694,6 +720,8 @@ export const EXAMPLES: Record<string, unknown> = {
         "email": "user1",
         "enable": true,
         "expiryTime": 1735689600000,
+        "historyDown": 20971520,
+        "historyUp": 10485760,
         "id": 14825,
         "inboundId": 1,
         "lastOnline": 1735680000000,
@@ -703,9 +731,13 @@ export const EXAMPLES: Record<string, unknown> = {
         "resetDay": 0,
         "resetMax": 0,
         "subId": "i7tvdpeffi0hvvf1",
+        "throttledSince": 1735680000000,
         "total": 10737418240,
         "up": 1048576,
-        "uuid": "e18c9a96-71bf-48d4-933f-8b9a46d4290c"
+        "uuid": "e18c9a96-71bf-48d4-933f-8b9a46d4290c",
+        "windowDisabled": false,
+        "windowStarted": 1735680000000,
+        "windowUsed": 1048576
       }
     ],
     "disableFlow": false,
@@ -713,11 +745,17 @@ export const EXAMPLES: Record<string, unknown> = {
     "enable": true,
     "expiryTime": 0,
     "fallbackParent": null,
+    "historyDown": 0,
+    "historyUp": 0,
     "id": 1,
     "lastTrafficResetTime": 0,
     "listen": "",
     "nodeId": null,
     "originNodeGuid": "",
+    "planAction": "disable",
+    "planPeriod": "daily",
+    "planQuotaGB": 0,
+    "planSpeed": 0,
     "port": 443,
     "protocol": "vless",
     "remark": "VLESS-443",
@@ -731,7 +769,11 @@ export const EXAMPLES: Record<string, unknown> = {
     "total": 0,
     "trafficReset": "never",
     "trafficResetDay": 1,
-    "up": 0
+    "up": 0,
+    "windowAction": "disable",
+    "windowMinutes": 0,
+    "windowQuotaGB": 0,
+    "windowSpeed": 0
   },
   "InboundClientIps": {
     "clientEmail": "",

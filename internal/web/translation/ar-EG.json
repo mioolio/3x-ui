@@ -105,7 +105,8 @@
     "support": "الدعم",
     "qrTitle": "امسح. استورد. اتصل.",
     "qrHint": "امسح الرمز بتطبيق العميل. لا تشارك هذا الرمز مع أحد.",
-    "saveQr": "حفظ QR"
+    "saveQr": "حفظ QR",
+    "historyUsage": "الاستخدام التاريخي"
   },
   "menu": {
     "theme": "الثيم",
@@ -596,7 +597,7 @@
         "customSockopt": "sockopt مخصص",
         "addCustomOption": "إضافة خيار مخصص",
         "serverNameIndication": "SNI",
-        "cipherSuites": "مجموعات التشفير",
+        "cipherSuites": "Cipher Suites",
         "autoOption": "تلقائي",
         "minMaxVersion": "إصدار أدنى/أقصى",
         "rejectUnknownSni": "رفض SNI غير معروف",
@@ -711,7 +712,20 @@
         "peerNumberConfig": "تكوين Peer {n}"
       },
       "sniffingDestOverride": "تجاوز الوجهة",
-      "advancedTitle": "الإعدادات المتقدمة"
+      "advancedTitle": "الإعدادات المتقدمة",
+      "plan": {
+        "period": "فترة خطة الترافيك",
+        "periodHelp": "حصة دورية لكل عميل على هذا الدخول، تُحسب من أول استخدام لكل عميل. يمكن للعميل تجاوزها بإعداده الخاص.",
+        "disabled": "معطل",
+        "quota": "حصة كل فترة (GB)",
+        "quotaHelp": "الترافيك الذي يمكن لكل عميل استخدامه في كل فترة؛ الحصة الإجمالية تُطبق أولًا.",
+        "action": "عند التجاوز",
+        "speed": "سرعة التقييد (Kbps)",
+        "windowQuota": "حصة النافذة (GB)",
+        "windowQuotaHelp": "نافذة حصة قصيرة (مثل 500MB كل ساعتين) فوق فترة الخطة؛ لكل عميل، من أول استخدام.",
+        "windowMinutes": "مدة النافذة (بالدقائق)",
+        "windowMinutesHelp": "طول نافذة الحصة، مثل 120 لساعتين؛ 0 = معطلة."
+      }
     },
     "clients": {
       "tabBasics": "أساسي",
@@ -946,7 +960,35 @@
       "renewOnDayDesc": "يتم التجديد في هذا اليوم من كل شهر ميلادي، عند منتصف الليل بتوقيت اللوحة، بدلاً من كل N يوم. إذا كان الشهر أقصر من اليوم المختار، يتم التجديد في آخر يوم منه. القيمة 0 تُبقي وضع الفاصل اليومي.",
       "renewsUsed": "التجديدات المستخدمة",
       "tuicTotalGBDesc": "TUIC does not support per-client traffic limits; set traffic limit on the inbound instead.",
-      "bulkAdTagHint": "أدخل علامة من 32 حرفًا ست عشريًا للتعيين، أو 'none' للمسح في منافذ MTProto."
+      "bulkAdTagHint": "أدخل علامة من 32 حرفًا ست عشريًا للتعيين، أو 'none' للمسح في منافذ MTProto.",
+      "speedLimitUp": "حد سرعة الرفع (Kbps)",
+      "speedLimitUpDesc": "حد دائم لسرعة الرفع لهذا العميل. 0 = بلا حد.",
+      "speedLimitDown": "حد سرعة التنزيل (Kbps)",
+      "speedLimitDownDesc": "حد دائم لسرعة التنزيل لهذا العميل. 0 = بلا حد.",
+      "depletionAction": "الإجراء عند نفاد الحصة أو الانتهاء",
+      "depletionActionDesc": "عند بلوغ حد البيانات أو تاريخ الانتهاء: تعطيل العميل (الافتراضي) أو إبقاؤه متصلا بسرعة منخفضة.",
+      "depletionSpeed": "سرعة التقييد (Kbps)",
+      "depletionSpeedDesc": "حد سرعة الرفع والتنزيل المطبق بعد نفاد الحصة أو الانتهاء.",
+      "windowQuotaGB": "حصة النافذة (GB)",
+      "windowQuotaGBDesc": "البيانات المسموح بها لكل نافذة حصة، إضافة إلى الحد الإجمالي. 0 = بلا نافذة.",
+      "windowMinutes": "مدة النافذة (بالدقائق)",
+      "windowMinutesDesc": "طول نافذة الحصة؛ تتحرك تلقائيا. 0 = معطلة.",
+      "windowAction": "الإجراء عند تجاوز النافذة",
+      "windowActionDesc": "عند تجاوز حصة النافذة: تقييد أو تعطيل حتى تعاد النافذة.",
+      "windowSpeed": "سرعة تقييد النافذة (Kbps)",
+      "windowSpeedDesc": "حد السرعة المطبق أثناء تجاوز حصة النافذة.",
+      "bandwidthAction": {
+        "default": "الافتراضي (تعطيل)",
+        "disable": "تعطيل",
+        "throttle": "تقييد"
+      },
+      "days": "يوم",
+      "depletionGraceDays": "فترة السماح (أيام)",
+      "depletionGraceDaysDesc": "كم يومًا يبقى العميل بسرعة منخفضة بعد نفاد حصته قبل تعطيله. 0 = بلا حد.",
+      "depletionPeriod": "حد الترافيك أثناء التقييد",
+      "depletionPeriodDesc": "أقصى ترافيك لكل فترة أثناء تقييد العميل؛ عند نفاده يُعطّل حتى تعود الفترة. معطل = بلا حد.",
+      "depletionPeriodGB": "حد كل فترة (GB)",
+      "depletionPeriodGBDesc": "الترافيك المسموح في كل فترة تقييد."
     },
     "groups": {
       "name": "الاسم",
@@ -2433,8 +2475,7 @@
       "disableSuccess": "✅ {{ .Email }}: اتعطل بنجاح.",
       "askToAddUserId": "مافيش إعدادات ليك!\r\nاطلب من الأدمن يضيف الـ Telegram ChatID الخاص بيك في إعداداتك.\r\n\r\nالـ ChatID بتاعك: <code>{{ .TgUserID }}</code>",
       "chooseClient": "اختار عميل للإدخال {{ .Inbound }}",
-      "chooseInbound": "اختار الإدخال",
-      "qrCodeForClient": "رمز QR للعميل {{ .Email }}:"
+      "chooseInbound": "اختار الإدخال"
     }
   },
   "discord": {
@@ -2541,5 +2582,6 @@
     "restartXray": "إعادة تشغيل خدمة Xray",
     "restartXraySuccess": "تمت إعادة تشغيل خدمة Xray بنجاح",
     "settings": "الإعدادات"
-  }
+  },
+  "historyUsage": "الاستخدام التاريخي"
 }

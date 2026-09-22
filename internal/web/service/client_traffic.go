@@ -195,7 +195,12 @@ func (s *ClientService) ResetAllTraffics() (bool, error) {
 		return database.GetDB().Transaction(func(tx *gorm.DB) error {
 			res := tx.Model(&xray.ClientTraffic{}).
 				Where("1 = 1").
-				Updates(map[string]any{"enable": true, "up": 0, "down": 0})
+				Updates(map[string]any{
+					"enable": true, "up": 0, "down": 0,
+					"window_used": 0, "window_started": 0, "window_disabled": false,
+					"period_used": 0, "period_started": 0, "period_disabled": false,
+					"throttled_since": 0,
+				})
 			if res.Error != nil {
 				return res.Error
 			}

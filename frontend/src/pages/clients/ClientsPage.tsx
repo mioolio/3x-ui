@@ -1170,6 +1170,8 @@ export default function ClientsPage() {
             up={record.traffic?.up}
             down={record.traffic?.down}
             total={record.totalGB}
+            historyUp={record.traffic?.historyUp}
+            historyDown={record.traffic?.historyDown}
             enabled={record.enable}
             trafficDiff={trafficDiff}
           />
@@ -1848,6 +1850,8 @@ export default function ClientsPage() {
                                     up={row.traffic?.up}
                                     down={row.traffic?.down}
                                     total={row.totalGB}
+                                    historyUp={row.traffic?.historyUp}
+                                    historyDown={row.traffic?.historyDown}
                                     enabled={row.enable}
                                     trafficDiff={trafficDiff}
                                   />

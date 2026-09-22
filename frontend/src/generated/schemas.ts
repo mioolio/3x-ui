@@ -1441,6 +1441,39 @@ export const SCHEMAS: Record<string, unknown> = {
         "format": "int64",
         "type": "integer"
       },
+      "depletionAction": {
+        "description": "On quota/expiry exhaustion",
+        "enum": [
+          "disable",
+          "throttle"
+        ],
+        "type": "string"
+      },
+      "depletionGraceDays": {
+        "description": "Max days of depletion throttling; 0 = unlimited",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "depletionPeriod": {
+        "description": "Traffic cap while depletion-throttled",
+        "enum": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "type": "string"
+      },
+      "depletionPeriodGB": {
+        "description": "Bytes per depletion-throttle period",
+        "format": "int64",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "depletionSpeed": {
+        "description": "Kbps while depletion-throttled",
+        "minimum": 0,
+        "type": "integer"
+      },
       "email": {
         "description": "Client email identifier",
         "type": "string"
@@ -1521,6 +1554,16 @@ export const SCHEMAS: Record<string, unknown> = {
         "description": "Security method (e.g., \"auto\", \"aes-128-gcm\")",
         "type": "string"
       },
+      "speedLimitDown": {
+        "description": "Always-on cap, Kbps",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "speedLimitUp": {
+        "description": "Per-client bandwidth controls, all opt-in: zero values keep the legacy\nbehaviour (unlimited speed, disable on depletion, no quota window).\nAlways-on cap, Kbps",
+        "minimum": 0,
+        "type": "integer"
+      },
       "subId": {
         "description": "Subscription identifier",
         "type": "string"
@@ -1554,6 +1597,30 @@ export const SCHEMAS: Record<string, unknown> = {
       "updated_at": {
         "description": "Last update timestamp",
         "format": "int64",
+        "type": "integer"
+      },
+      "windowAction": {
+        "description": "On window overrun",
+        "enum": [
+          "disable",
+          "throttle"
+        ],
+        "type": "string"
+      },
+      "windowMinutes": {
+        "description": "Window length; 0 disables the quota",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "windowQuotaGB": {
+        "description": "Bytes per sliding window, like totalGB",
+        "format": "int64",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "windowSpeed": {
+        "description": "Kbps while window-throttled",
+        "minimum": 0,
         "type": "integer"
       }
     },
@@ -1665,6 +1732,22 @@ export const SCHEMAS: Record<string, unknown> = {
         "format": "int64",
         "type": "integer"
       },
+      "depletionAction": {
+        "type": "string"
+      },
+      "depletionGraceDays": {
+        "type": "integer"
+      },
+      "depletionPeriod": {
+        "type": "string"
+      },
+      "depletionPeriodGB": {
+        "format": "int64",
+        "type": "integer"
+      },
+      "depletionSpeed": {
+        "type": "integer"
+      },
       "email": {
         "type": "string"
       },
@@ -1724,6 +1807,12 @@ export const SCHEMAS: Record<string, unknown> = {
       "security": {
         "type": "string"
       },
+      "speedLimitDown": {
+        "type": "integer"
+      },
+      "speedLimitUp": {
+        "type": "integer"
+      },
       "subId": {
         "type": "string"
       },
@@ -1747,6 +1836,19 @@ export const SCHEMAS: Record<string, unknown> = {
       },
       "uuid": {
         "type": "string"
+      },
+      "windowAction": {
+        "type": "string"
+      },
+      "windowMinutes": {
+        "type": "integer"
+      },
+      "windowQuotaGB": {
+        "format": "int64",
+        "type": "integer"
+      },
+      "windowSpeed": {
+        "type": "integer"
       }
     },
     "required": [
@@ -1755,6 +1857,11 @@ export const SCHEMAS: Record<string, unknown> = {
       "auth",
       "comment",
       "createdAt",
+      "depletionAction",
+      "depletionGraceDays",
+      "depletionPeriod",
+      "depletionPeriodGB",
+      "depletionSpeed",
       "email",
       "enable",
       "expiryTime",
@@ -1775,13 +1882,19 @@ export const SCHEMAS: Record<string, unknown> = {
       "reverse",
       "secret",
       "security",
+      "speedLimitDown",
+      "speedLimitUp",
       "subId",
       "tgId",
       "totalGB",
       "trafficReset",
       "trafficResetDay",
       "updatedAt",
-      "uuid"
+      "uuid",
+      "windowAction",
+      "windowMinutes",
+      "windowQuotaGB",
+      "windowSpeed"
     ],
     "type": "object"
   },
@@ -1916,6 +2029,17 @@ export const SCHEMAS: Record<string, unknown> = {
         "format": "int64",
         "type": "integer"
       },
+      "historyDown": {
+        "example": 20971520,
+        "format": "int64",
+        "type": "integer"
+      },
+      "historyUp": {
+        "description": "Lifetime counters: never reset by quota renewals or operator resets, so\nthe panel can show total historical usage per client. Cleared only when\nthe accounting row itself is deleted.",
+        "example": 10485760,
+        "format": "int64",
+        "type": "integer"
+      },
       "id": {
         "example": 14825,
         "type": "integer"
@@ -1957,6 +2081,12 @@ export const SCHEMAS: Record<string, unknown> = {
         "example": "i7tvdpeffi0hvvf1",
         "type": "string"
       },
+      "throttledSince": {
+        "description": "When depletion throttling started (ms); 0 = not currently throttled.",
+        "example": 1735680000000,
+        "format": "int64",
+        "type": "integer"
+      },
       "total": {
         "example": 10737418240,
         "format": "int64",
@@ -1970,6 +2100,21 @@ export const SCHEMAS: Record<string, unknown> = {
       "uuid": {
         "example": "e18c9a96-71bf-48d4-933f-8b9a46d4290c",
         "type": "string"
+      },
+      "windowDisabled": {
+        "example": false,
+        "type": "boolean"
+      },
+      "windowStarted": {
+        "example": 1735680000000,
+        "format": "int64",
+        "type": "integer"
+      },
+      "windowUsed": {
+        "description": "Sliding-window quota state (per-client windowQuotaGB/windowMinutes).\nwindowStarted is the current window's opening time in ms; windowDisabled\nmarks a client switched off BY the window action so the slide can restore\nit without resurrecting an operator-disabled client.",
+        "example": 1048576,
+        "format": "int64",
+        "type": "integer"
       }
     },
     "required": [
@@ -1977,6 +2122,8 @@ export const SCHEMAS: Record<string, unknown> = {
       "email",
       "enable",
       "expiryTime",
+      "historyDown",
+      "historyUp",
       "id",
       "inboundId",
       "lastOnline",
@@ -1986,9 +2133,13 @@ export const SCHEMAS: Record<string, unknown> = {
       "resetDay",
       "resetMax",
       "subId",
+      "throttledSince",
       "total",
       "up",
-      "uuid"
+      "uuid",
+      "windowDisabled",
+      "windowStarted",
+      "windowUsed"
     ],
     "type": "object"
   },
@@ -2275,9 +2426,6 @@ export const SCHEMAS: Record<string, unknown> = {
         },
         "type": "array"
       },
-      "cipherSuites": {
-        "type": "string"
-      },
       "createdAt": {
         "format": "int64",
         "type": "integer"
@@ -2411,7 +2559,6 @@ export const SCHEMAS: Record<string, unknown> = {
       "address",
       "allowInsecure",
       "alpn",
-      "cipherSuites",
       "createdAt",
       "echConfigList",
       "excludeFromSubTypes",
@@ -2455,9 +2602,6 @@ export const SCHEMAS: Record<string, unknown> = {
           "type": "string"
         },
         "type": "array"
-      },
-      "cipherSuites": {
-        "type": "string"
       },
       "echConfigList": {
         "type": "string"
@@ -2585,7 +2729,6 @@ export const SCHEMAS: Record<string, unknown> = {
     "required": [
       "allowInsecure",
       "alpn",
-      "cipherSuites",
       "echConfigList",
       "excludeFromSubTypes",
       "finalMask",
@@ -2689,6 +2832,16 @@ export const SCHEMAS: Record<string, unknown> = {
         "description": "FallbackParent is populated by the API layer when this inbound is\nattached as a fallback child of a VLESS/Trojan TCP-TLS master.\nThe frontend uses it to rewrite client-share links so they advertise\nthe master's externally reachable endpoint instead of the child's\nloopback listen. Not persisted.",
         "nullable": true
       },
+      "historyDown": {
+        "description": "Lifetime download, never reset by traffic resets",
+        "format": "int64",
+        "type": "integer"
+      },
+      "historyUp": {
+        "description": "Lifetime upload, never reset by traffic resets",
+        "format": "int64",
+        "type": "integer"
+      },
       "id": {
         "description": "Unique identifier",
         "example": 1,
@@ -2710,6 +2863,29 @@ export const SCHEMAS: Record<string, unknown> = {
       "originNodeGuid": {
         "description": "OriginNodeGuid is the panelGuid of the node that physically hosts this\ninbound, propagated up across hops (#4983). Empty for an inbound that\nlives on this panel's own xray; set to the originating node's GUID when\nthe inbound was synced from a node (kept as-is across further hops). Lets\nthe master attribute a deeply nested inbound to the real node instead of\nthe intermediate one it was fetched through.",
         "type": "string"
+      },
+      "planAction": {
+        "enum": [
+          "disable",
+          "throttle"
+        ],
+        "type": "string"
+      },
+      "planPeriod": {
+        "description": "Per-inbound traffic plan, applied to every client on this inbound unless\nthe client carries its own stronger setting. All opt-in (zero values).\nPlan is a daily/weekly/monthly fence; Window is a short quota window in\nminutes (e.g. 500MB per 2h). Enforcement is per client, aligned to its\nfirst use.",
+        "enum": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "type": "string"
+      },
+      "planQuotaGB": {
+        "format": "int64",
+        "type": "integer"
+      },
+      "planSpeed": {
+        "type": "integer"
       },
       "port": {
         "example": 443,
@@ -2791,6 +2967,23 @@ export const SCHEMAS: Record<string, unknown> = {
         "description": "Upload traffic in bytes",
         "format": "int64",
         "type": "integer"
+      },
+      "windowAction": {
+        "enum": [
+          "disable",
+          "throttle"
+        ],
+        "type": "string"
+      },
+      "windowMinutes": {
+        "type": "integer"
+      },
+      "windowQuotaGB": {
+        "format": "int64",
+        "type": "integer"
+      },
+      "windowSpeed": {
+        "type": "integer"
       }
     },
     "required": [
@@ -2799,6 +2992,8 @@ export const SCHEMAS: Record<string, unknown> = {
       "down",
       "enable",
       "expiryTime",
+      "historyDown",
+      "historyUp",
       "id",
       "lastTrafficResetTime",
       "listen",

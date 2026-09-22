@@ -105,7 +105,8 @@
     "support": "支持",
     "qrTitle": "扫码。导入。连接。",
     "qrHint": "使用客户端应用扫描。请勿泄露此二维码。",
-    "saveQr": "保存二维码"
+    "saveQr": "保存二维码",
+    "historyUsage": "历史用量"
   },
   "menu": {
     "theme": "主题",
@@ -616,7 +617,7 @@
         "customSockopt": "自定义 sockopt",
         "addCustomOption": "添加自定义选项",
         "serverNameIndication": "SNI",
-        "cipherSuites": "密码套件",
+        "cipherSuites": "Cipher Suites",
         "autoOption": "自动",
         "minMaxVersion": "最小/最大版本",
         "rejectUnknownSni": "拒绝未知 SNI",
@@ -711,7 +712,20 @@
         "peerNumberConfig": "Peer {n} 配置"
       },
       "sniffingDestOverride": "目标覆盖",
-      "advancedTitle": "高级设置"
+      "advancedTitle": "高级设置",
+      "plan": {
+        "period": "流量计划周期",
+        "periodHelp": "对该入站下每个客户端生效的周期额度，从各客户端首次使用开始计算。客户端可用自己的设置覆盖。",
+        "disabled": "不启用",
+        "quota": "每周期额度 (GB)",
+        "quotaHelp": "每个客户端每周期可用的流量；总额度仍然优先生效。",
+        "action": "超出后动作",
+        "speed": "降速限速 (Kbps)",
+        "windowQuota": "窗口配额 (GB)",
+        "windowQuotaHelp": "短窗口配额（如每 2 小时 500MB），叠加在计划周期之上；按客户端独立计算，从首次使用开始。",
+        "windowMinutes": "窗口时长（分钟）",
+        "windowMinutesHelp": "配额窗口的长度，例如 120 表示两小时；0 = 不启用窗口。"
+      }
     },
     "clients": {
       "tabBasics": "基本",
@@ -946,7 +960,35 @@
       "renewOnDayDesc": "每个自然月的这一天午夜（按面板时区）续期，而不是每 N 天续期一次。若当月没有该日期，则在当月最后一天续期。填 0 保持按天间隔模式。",
       "renewsUsed": "已用续期次数",
       "tuicTotalGBDesc": "TUIC does not support per-client traffic limits; set traffic limit on the inbound instead.",
-      "bulkAdTagHint": "输入 32 位十六进制标签以设置，或输入 'none' 清除 MTProto 赞助频道。"
+      "bulkAdTagHint": "输入 32 位十六进制标签以设置，或输入 'none' 清除 MTProto 赞助频道。",
+      "speedLimitUp": "上传限速 (Kbps)",
+      "speedLimitUpDesc": "该客户端的常驻上传限速。0 = 不限速。",
+      "speedLimitDown": "下载限速 (Kbps)",
+      "speedLimitDownDesc": "该客户端的常驻下载限速。0 = 不限速。",
+      "depletionAction": "超额/到期后动作",
+      "depletionActionDesc": "达到流量上限或到期时间后的处理：禁用客户端（默认），或保持连接并降速。",
+      "depletionSpeed": "降速限速 (Kbps)",
+      "depletionSpeedDesc": "流量耗尽或到期后应用的上下行限速。",
+      "windowQuotaGB": "窗口配额 (GB)",
+      "windowQuotaGBDesc": "每个配额窗口内允许的流量，与总限额叠加生效。0 = 不启用。",
+      "windowMinutes": "窗口时长 (分钟)",
+      "windowMinutesDesc": "配额窗口的长度，到时自动滚动；0 = 不启用窗口配额。",
+      "windowAction": "窗口超额后动作",
+      "windowActionDesc": "超出窗口配额后的处理：降速或禁用，直到窗口重置。",
+      "windowSpeed": "窗口降速限速 (Kbps)",
+      "windowSpeedDesc": "窗口超额期间应用的限速。",
+      "bandwidthAction": {
+        "default": "默认（禁用）",
+        "disable": "禁用",
+        "throttle": "降速"
+      },
+      "days": "天",
+      "depletionGraceDays": "宽限期限（天）",
+      "depletionGraceDaysDesc": "客户端超额降速后最多保留的天数，超过后自动禁用。0 = 不限制。",
+      "depletionPeriod": "降速期流量上限",
+      "depletionPeriodDesc": "降速期间每周期的最大流量，用完后禁用直到周期滚动。不启用 = 无上限。",
+      "depletionPeriodGB": "每周期上限 (GB)",
+      "depletionPeriodGBDesc": "每个降速周期内允许的流量。"
     },
     "groups": {
       "name": "名称",
@@ -2433,8 +2475,7 @@
       "disableSuccess": "✅ {{ .Email }}：已成功禁用。",
       "askToAddUserId": "未找到您的配置！\r\n请向管理员询问，在您的配置中使用您的 Telegram 用户 ChatID。\r\n\r\n您的用户 ChatID：<code>{{ .TgUserID }}</code>",
       "chooseClient": "为入站 {{ .Inbound }} 选择一个客户",
-      "chooseInbound": "选择一个入站",
-      "qrCodeForClient": "客户端 {{ .Email }} 的二维码："
+      "chooseInbound": "选择一个入站"
     }
   },
   "discord": {
@@ -2541,5 +2582,6 @@
     "restartXray": "重启 Xray 服务",
     "restartXraySuccess": "Xray 服务已成功重启",
     "settings": "设置"
-  }
+  },
+  "historyUsage": "历史用量"
 }

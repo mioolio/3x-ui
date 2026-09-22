@@ -348,6 +348,11 @@ export interface Client {
   auth?: string;
   comment: string;
   created_at?: number;
+  depletionAction?: string;
+  depletionGraceDays?: number;
+  depletionPeriod?: string;
+  depletionPeriodGB?: number;
+  depletionSpeed?: number;
   email: string;
   enable: boolean;
   expiryTime: number;
@@ -367,12 +372,18 @@ export interface Client {
   reverse?: ClientReverse | null;
   secret?: string;
   security: string;
+  speedLimitDown?: number;
+  speedLimitUp?: number;
   subId: string;
   tgId: number;
   totalGB: number;
   trafficReset?: string;
   trafficResetDay?: number;
   updated_at?: number;
+  windowAction?: string;
+  windowMinutes?: number;
+  windowQuotaGB?: number;
+  windowSpeed?: number;
 }
 
 export interface ClientInbound {
@@ -398,6 +409,11 @@ export interface ClientRecord {
   auth: string;
   comment: string;
   createdAt: number;
+  depletionAction: string;
+  depletionGraceDays: number;
+  depletionPeriod: string;
+  depletionPeriodGB: number;
+  depletionSpeed: number;
   email: string;
   enable: boolean;
   expiryTime: number;
@@ -418,6 +434,8 @@ export interface ClientRecord {
   reverse: unknown;
   secret: string;
   security: string;
+  speedLimitDown: number;
+  speedLimitUp: number;
   subId: string;
   tgId: number;
   totalGB: number;
@@ -425,6 +443,10 @@ export interface ClientRecord {
   trafficResetDay: number;
   updatedAt: number;
   uuid: string;
+  windowAction: string;
+  windowMinutes: number;
+  windowQuotaGB: number;
+  windowSpeed: number;
 }
 
 export interface ClientReverse {
@@ -455,6 +477,8 @@ export interface ClientTraffic {
   email: string;
   enable: boolean;
   expiryTime: number;
+  historyDown: number;
+  historyUp: number;
   id: number;
   inboundId: number;
   lastOnline: number;
@@ -464,9 +488,13 @@ export interface ClientTraffic {
   resetDay: number;
   resetMax: number;
   subId: string;
+  throttledSince: number;
   total: number;
   up: number;
   uuid: string;
+  windowDisabled: boolean;
+  windowStarted: number;
+  windowUsed: number;
 }
 
 export interface ClientsSummary {
@@ -537,7 +565,6 @@ export interface Host {
   address: string;
   allowInsecure: boolean;
   alpn: string[];
-  cipherSuites: string;
   createdAt: number;
   echConfigList: string;
   excludeFromSubTypes: string[];
@@ -574,7 +601,6 @@ export interface Host {
 export interface HostGroup {
   allowInsecure: boolean;
   alpn: string[];
-  cipherSuites: string;
   echConfigList: string;
   excludeFromSubTypes: string[];
   finalMask: string;
@@ -621,11 +647,17 @@ export interface Inbound {
   enable: boolean;
   expiryTime: number;
   fallbackParent?: FallbackParentInfo | null;
+  historyDown: number;
+  historyUp: number;
   id: number;
   lastTrafficResetTime: number;
   listen: string;
   nodeId?: number | null;
   originNodeGuid?: string;
+  planAction?: string;
+  planPeriod?: string;
+  planQuotaGB?: number;
+  planSpeed?: number;
   port: number;
   protocol: Protocol;
   remark: string;
@@ -640,6 +672,10 @@ export interface Inbound {
   trafficReset: string;
   trafficResetDay: number;
   up: number;
+  windowAction?: string;
+  windowMinutes?: number;
+  windowQuotaGB?: number;
+  windowSpeed?: number;
 }
 
 export interface InboundClientIps {

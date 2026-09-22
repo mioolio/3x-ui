@@ -53,6 +53,7 @@ import './ClientFormModal.css';
 
 const FLOW_OPTIONS = Object.values(TLS_FLOW_CONTROL);
 const VMESS_SECURITY_OPTIONS = ['auto', 'aes-128-gcm', 'chacha20-poly1305'] as const;
+const BANDWIDTH_ACTIONS = ['', 'disable', 'throttle'] as const;
 
 const MULTI_CLIENT_PROTOCOLS = new Set([
   'shadowsocks',
@@ -165,6 +166,17 @@ const EMPTY: Values = {
   comment: '',
   enable: true,
   inboundIds: [],
+  speedLimitUp: 0,
+  speedLimitDown: 0,
+  depletionAction: '' as const,
+  depletionSpeed: 0,
+  depletionGraceDays: 0,
+  depletionPeriod: 'never' as const,
+  depletionPeriodGB: 0,
+  windowQuotaGB: 0,
+  windowMinutes: 0,
+  windowAction: '' as const,
+  windowSpeed: 0,
   externalLinks: [],
   wgPrivateKey: '',
   wgPublicKey: '',
@@ -270,6 +282,19 @@ export default function ClientFormModal({
   const password = useWatch({ control: methods.control, name: 'password' });
   const subId = useWatch({ control: methods.control, name: 'subId' });
   const limitHwid = useWatch({ control: methods.control, name: 'limitHwid' });
+  const depletionAction = useWatch({ control: methods.control, name: 'depletionAction' });
+  const depletionPeriod = useWatch({ control: methods.control, name: 'depletionPeriod' });
+  const speedLimitDown = useWatch({ control: methods.control, name: 'speedLimitDown' }) || 0;
+  const speedLimitUp = useWatch({ control: methods.control, name: 'speedLimitUp' }) || 0;
+  const [speedUnit, setSpeedUnit] = useState<'Kbps' | 'Mbps'>('Kbps');
+  const speedUnitFactor = speedUnit === 'Mbps' ? 1000 : 1;
+  const PLAN_PERIODS = ['never', 'daily', 'weekly', 'monthly'] as const;
+  const windowMinutes = useWatch({ control: methods.control, name: 'windowMinutes' });
+  const windowAction = useWatch({ control: methods.control, name: 'windowAction' });
+  const bandwidthActionOptions = BANDWIDTH_ACTIONS.map((a) => ({
+    value: a,
+    label: t(`pages.clients.bandwidthAction.${a === '' ? 'default' : a}`),
+  }));
   const auth = useWatch({ control: methods.control, name: 'auth' });
   const wgPrivateKey = useWatch({ control: methods.control, name: 'wgPrivateKey' });
   const limitIp = useWatch({ control: methods.control, name: 'limitIp' });
@@ -375,6 +400,17 @@ export default function ClientFormModal({
         group: client.group || '',
         comment: client.comment || '',
         enable: !!client.enable,
+        speedLimitUp: Number(client.speedLimitUp) || 0,
+        speedLimitDown: Number(client.speedLimitDown) || 0,
+        depletionAction: (client.depletionAction as ClientFormValues['depletionAction']) || '',
+        depletionSpeed: Number(client.depletionSpeed) || 0,
+        depletionGraceDays: Number(client.depletionGraceDays) || 0,
+        depletionPeriod: (client.depletionPeriod as ClientFormValues['depletionPeriod']) || 'never',
+        depletionPeriodGB: bytesToGB(Number(client.depletionPeriodGB) || 0),
+        windowQuotaGB: bytesToGB(Number(client.windowQuotaGB) || 0),
+        windowMinutes: Number(client.windowMinutes) || 0,
+        windowAction: (client.windowAction as ClientFormValues['windowAction']) || '',
+        windowSpeed: Number(client.windowSpeed) || 0,
         inboundIds: Array.isArray(attachedIds) ? [...attachedIds] : [],
         externalLinks: toExternalLinkRows(attachedExternalLinks),
         wgPrivateKey: client.privateKey || '',
@@ -673,6 +709,17 @@ export default function ClientFormModal({
       comment: values.comment,
       enable: values.enable,
       inboundIds: values.inboundIds,
+      speedLimitUp: values.speedLimitUp,
+      speedLimitDown: values.speedLimitDown,
+      depletionAction: values.depletionAction,
+      depletionSpeed: values.depletionSpeed,
+      depletionGraceDays: values.depletionGraceDays,
+      depletionPeriod: values.depletionPeriod,
+      depletionPeriodGB: values.depletionPeriodGB,
+      windowQuotaGB: values.windowQuotaGB,
+      windowMinutes: values.windowMinutes,
+      windowAction: values.windowAction,
+      windowSpeed: values.windowSpeed,
     });
     if (!validated.success) {
       const issue = validated.error.issues[0];
@@ -705,6 +752,25 @@ export default function ClientFormModal({
       group: values.group,
       comment: values.comment,
       enable: !!values.enable,
+      speedLimitUp: Number(values.speedLimitUp) || 0,
+      speedLimitDown: Number(values.speedLimitDown) || 0,
+      depletionAction: values.depletionAction || '',
+      depletionSpeed:
+        values.depletionAction === 'throttle' ? Number(values.depletionSpeed) || 0 : 0,
+      depletionGraceDays:
+        values.depletionAction === 'throttle' ? Number(values.depletionGraceDays) || 0 : 0,
+      depletionPeriod:
+        values.depletionAction === 'throttle' && values.depletionPeriod !== 'never'
+          ? values.depletionPeriod
+          : '',
+      depletionPeriodGB:
+        values.depletionAction === 'throttle' && values.depletionPeriod !== 'never'
+          ? gbToBytes(Number(values.depletionPeriodGB) || 0)
+          : 0,
+      windowQuotaGB: values.windowMinutes > 0 ? gbToBytes(Number(values.windowQuotaGB) || 0) : 0,
+      windowMinutes: Number(values.windowMinutes) || 0,
+      windowAction: values.windowMinutes > 0 ? values.windowAction || '' : '',
+      windowSpeed: values.windowMinutes > 0 ? Number(values.windowSpeed) || 0 : 0,
     };
     const reverseTagValue = showReverseTag ? (values.reverseTag || '').trim() : '';
     if (reverseTagValue) {
@@ -950,6 +1016,185 @@ export default function ClientFormModal({
                             </Space.Compact>
                           </Form.Item>
                         </Col>
+                      </Row>
+
+                      <Row gutter={16}>
+                        <Col xs={24} md={12}>
+                          <Form.Item
+                            label={t('pages.clients.speedLimitDown')}
+                            tooltip={t('pages.clients.speedLimitDownDesc')}
+                          >
+                            <Space.Compact style={{ display: 'flex' }}>
+                              <InputNumber
+                                min={0}
+                                style={{ flex: 1 }}
+                                value={speedLimitDown / speedUnitFactor}
+                                onChange={(v) =>
+                                  methods.setValue(
+                                    'speedLimitDown',
+                                    Math.round((Number(v) || 0) * speedUnitFactor),
+                                  )
+                                }
+                              />
+                              <Select
+                                value={speedUnit}
+                                style={{ width: 92 }}
+                                onChange={(u) => setSpeedUnit(u)}
+                                options={[
+                                  { value: 'Kbps', label: 'Kbps' },
+                                  { value: 'Mbps', label: 'Mbps' },
+                                ]}
+                              />
+                            </Space.Compact>
+                          </Form.Item>
+                        </Col>
+                        <Col xs={24} md={12}>
+                          <Form.Item
+                            label={t('pages.clients.speedLimitUp')}
+                            tooltip={t('pages.clients.speedLimitUpDesc')}
+                          >
+                            <Space.Compact style={{ display: 'flex' }}>
+                              <InputNumber
+                                min={0}
+                                style={{ flex: 1 }}
+                                value={speedLimitUp / speedUnitFactor}
+                                onChange={(v) =>
+                                  methods.setValue(
+                                    'speedLimitUp',
+                                    Math.round((Number(v) || 0) * speedUnitFactor),
+                                  )
+                                }
+                              />
+                              <Select
+                                value={speedUnit}
+                                style={{ width: 92 }}
+                                onChange={(u) => setSpeedUnit(u)}
+                                options={[
+                                  { value: 'Kbps', label: 'Kbps' },
+                                  { value: 'Mbps', label: 'Mbps' },
+                                ]}
+                              />
+                            </Space.Compact>
+                          </Form.Item>
+                        </Col>
+                      </Row>
+
+                      <Row gutter={16}>
+                        <Col xs={24} md={12}>
+                          <FormField
+                            name="depletionAction"
+                            label={t('pages.clients.depletionAction')}
+                            tooltip={t('pages.clients.depletionActionDesc')}
+                          >
+                            <Select options={bandwidthActionOptions} />
+                          </FormField>
+                        </Col>
+                        {depletionAction === 'throttle' && (
+                          <Col xs={24} md={12}>
+                            <FormField
+                              name="depletionSpeed"
+                              label={t('pages.clients.depletionSpeed')}
+                              tooltip={t('pages.clients.depletionSpeedDesc')}
+                              transform={{ output: (v) => Number(v) || 0 }}
+                            >
+                              <InputNumber
+                                min={0}
+                                style={{ width: '100%' }}
+                                addonAfter={speedUnit}
+                              />
+                            </FormField>
+                          </Col>
+                        )}
+                        {depletionAction === 'throttle' && (
+                          <Col xs={24} md={12}>
+                            <FormField
+                              name="depletionGraceDays"
+                              label={t('pages.clients.depletionGraceDays')}
+                              tooltip={t('pages.clients.depletionGraceDaysDesc')}
+                              transform={{ output: (v) => Number(v) || 0 }}
+                            >
+                              <InputNumber
+                                min={0}
+                                style={{ width: '100%' }}
+                                addonAfter={t('pages.clients.days')}
+                              />
+                            </FormField>
+                          </Col>
+                        )}
+                        {depletionAction === 'throttle' && (
+                          <Col xs={24} md={12}>
+                            <FormField
+                              name="depletionPeriod"
+                              label={t('pages.clients.depletionPeriod')}
+                              tooltip={t('pages.clients.depletionPeriodDesc')}
+                            >
+                              <Select
+                                options={PLAN_PERIODS.map((r) => ({
+                                  value: r,
+                                  label: t(`pages.inbounds.periodicTrafficReset.${r}`),
+                                }))}
+                              />
+                            </FormField>
+                          </Col>
+                        )}
+                        {depletionAction === 'throttle' && depletionPeriod !== 'never' && (
+                          <Col xs={24} md={12}>
+                            <FormField
+                              name="depletionPeriodGB"
+                              label={t('pages.clients.depletionPeriodGB')}
+                              tooltip={t('pages.clients.depletionPeriodGBDesc')}
+                              transform={{ output: (v) => Number(v) || 0 }}
+                            >
+                              <InputNumber min={0} style={{ width: '100%' }} />
+                            </FormField>
+                          </Col>
+                        )}
+                      </Row>
+
+                      <Row gutter={16}>
+                        <Col xs={24} md={8}>
+                          <FormField
+                            name="windowQuotaGB"
+                            label={t('pages.clients.windowQuotaGB')}
+                            tooltip={t('pages.clients.windowQuotaGBDesc')}
+                            transform={{ output: (v) => Number(v) || 0 }}
+                          >
+                            <InputNumber min={0} step={0.1} style={{ width: '100%' }} />
+                          </FormField>
+                        </Col>
+                        <Col xs={24} md={8}>
+                          <FormField
+                            name="windowMinutes"
+                            label={t('pages.clients.windowMinutes')}
+                            tooltip={t('pages.clients.windowMinutesDesc')}
+                            transform={{ output: (v) => Number(v) || 0 }}
+                          >
+                            <InputNumber min={0} style={{ width: '100%' }} />
+                          </FormField>
+                        </Col>
+                        {windowMinutes > 0 && (
+                          <Col xs={24} md={8}>
+                            <FormField
+                              name="windowAction"
+                              label={t('pages.clients.windowAction')}
+                              tooltip={t('pages.clients.windowActionDesc')}
+                            >
+                              <Select options={bandwidthActionOptions} />
+                            </FormField>
+                          </Col>
+                        )}
+                        {windowMinutes > 0 && windowAction === 'throttle' && (
+                          <Col xs={24} md={8}>
+                            <FormField
+                              name="windowSpeed"
+                              label={t('pages.clients.windowSpeed')}
+                              tooltip={t('pages.clients.windowSpeedDesc')}
+                              transform={{ output: (v) => Number(v) || 0 }}
+                            >
+                              <InputNumber min={0} style={{ width: '100%' }} addonAfter="Kbps" />
+                            </FormField>
+                          </Col>
+                        )}
                       </Row>
 
                       <Row gutter={16}>

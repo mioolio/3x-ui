@@ -583,6 +583,8 @@ func (s *SubService) AggregateTrafficByEmails(emails []string) (xray.ClientTraff
 		if first {
 			agg.Up = ct.Up
 			agg.Down = ct.Down
+			agg.HistoryUp = ct.HistoryUp
+			agg.HistoryDown = ct.HistoryDown
 			agg.Total = total
 			agg.ExpiryTime = subscriptionExpiryFromClient(now, expiry)
 			agg.ResetDay = resetDay
@@ -591,6 +593,8 @@ func (s *SubService) AggregateTrafficByEmails(emails []string) (xray.ClientTraff
 		}
 		agg.Up += ct.Up
 		agg.Down += ct.Down
+		agg.HistoryUp += ct.HistoryUp
+		agg.HistoryDown += ct.HistoryDown
 		if resetDay != agg.ResetDay {
 			agg.ResetDay = 0
 		}
@@ -2088,9 +2092,6 @@ func applyExternalProxyTLSToStream(ep map[string]any, stream map[string]any, sec
 	if alpn, ok := externalProxyALPNList(ep["alpn"]); ok {
 		tlsSettings["alpn"] = alpn
 	}
-	if cs, ok := ep["cipherSuites"].(string); ok && cs != "" {
-		tlsSettings["cipherSuites"] = cs
-	}
 	if pins, ok := externalProxyPins(ep["pinnedPeerCertSha256"]); ok {
 		settings, _ := tlsSettings["settings"].(map[string]any)
 		if settings == nil {
@@ -2941,6 +2942,7 @@ type PageData struct {
 	DownloadByte  int64
 	UploadByte    int64
 	TotalByte     int64
+	HistoryByte   int64 // lifetime up+down across resets, for the sub page
 	SubUrl        string
 	SubJsonUrl    string
 	SubClashUrl   string
@@ -3118,6 +3120,7 @@ func (s *SubService) BuildPageData(subId string, hostHeader string, traffic xray
 		DownloadByte:  traffic.Down,
 		UploadByte:    traffic.Up,
 		TotalByte:     traffic.Total,
+		HistoryByte:   traffic.HistoryUp + traffic.HistoryDown,
 		SubUrl:        subURL,
 		SubJsonUrl:    subJsonURL,
 		SubClashUrl:   subClashURL,

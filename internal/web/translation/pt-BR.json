@@ -105,7 +105,8 @@
     "support": "Suporte",
     "qrTitle": "Escaneie. Importe. Conecte.",
     "qrHint": "Escaneie com seu aplicativo cliente. Mantenha este código em sigilo.",
-    "saveQr": "Salvar QR"
+    "saveQr": "Salvar QR",
+    "historyUsage": "Uso histórico"
   },
   "menu": {
     "theme": "Tema",
@@ -617,7 +618,7 @@
         "customSockopt": "Sockopt personalizado",
         "addCustomOption": "Adicionar opção personalizada",
         "serverNameIndication": "SNI",
-        "cipherSuites": "Conjuntos de cifras",
+        "cipherSuites": "Cipher Suites",
         "autoOption": "Auto",
         "minMaxVersion": "Versão mín/máx",
         "rejectUnknownSni": "Rejeitar SNI desconhecido",
@@ -711,7 +712,20 @@
         "peerNumberConfig": "Config Peer {n}"
       },
       "sniffingDestOverride": "Substituição de destino",
-      "advancedTitle": "Configurações avançadas"
+      "advancedTitle": "Configurações avançadas",
+      "plan": {
+        "period": "Período do plano de tráfego",
+        "periodHelp": "Cota periódica por cliente para todos neste inbound, contada do primeiro uso de cada cliente. O cliente pode sobrescrever com a própria configuração.",
+        "disabled": "Desativado",
+        "quota": "Cota por período (GB)",
+        "quotaHelp": "Tráfego que cada cliente pode usar por período do plano; a cota total ainda se aplica primeiro.",
+        "action": "Ao exceder",
+        "speed": "Velocidade de limitação (Kbps)",
+        "windowQuota": "Cota da janela (GB)",
+        "windowQuotaHelp": "Cota de janela curta (ex.: 500MB a cada 2 horas) além do período do plano; por cliente, do primeiro uso.",
+        "windowMinutes": "Duração da janela (minutos)",
+        "windowMinutesHelp": "Duração da janela de cota, ex.: 120 = duas horas; 0 = desativada."
+      }
     },
     "clients": {
       "tabBasics": "Básico",
@@ -946,7 +960,35 @@
       "renewOnDayDesc": "Renova neste dia de cada mês do calendário, à meia-noite no fuso horário do painel, em vez de a cada N dias. Se o mês for curto demais para o dia escolhido, renova no último dia dele. 0 mantém o modo de intervalo em dias.",
       "renewsUsed": "Renovações usadas",
       "tuicTotalGBDesc": "TUIC does not support per-client traffic limits; set traffic limit on the inbound instead.",
-      "bulkAdTagHint": "Insira uma tag hexadecimal de 32 caracteres para definir ou 'none' para limpar no MTProto."
+      "bulkAdTagHint": "Insira uma tag hexadecimal de 32 caracteres para definir ou 'none' para limpar no MTProto.",
+      "speedLimitUp": "Limite de Velocidade de Upload (Kbps)",
+      "speedLimitUpDesc": "Limite permanente de upload para este cliente. 0 = ilimitado.",
+      "speedLimitDown": "Limite de Velocidade de Download (Kbps)",
+      "speedLimitDownDesc": "Limite permanente de download para este cliente. 0 = ilimitado.",
+      "depletionAction": "Ao esgotar cota ou expirar",
+      "depletionActionDesc": "Ao atingir o limite de tráfego ou a data de expiração: desabilitar o cliente (padrão) ou mantê-lo conectado em velocidade reduzida.",
+      "depletionSpeed": "Velocidade de limitação (Kbps)",
+      "depletionSpeedDesc": "Limite de upload/download aplicado após esgotar a cota ou expirar.",
+      "windowQuotaGB": "Cota da janela (GB)",
+      "windowQuotaGBDesc": "Tráfego permitido por janela de cota, além do limite total. 0 = sem janela.",
+      "windowMinutes": "Duração da janela (minutos)",
+      "windowMinutesDesc": "Duração da janela de cota; desliza automaticamente. 0 = desativada.",
+      "windowAction": "Ao exceder a janela",
+      "windowActionDesc": "Ao exceder a cota da janela: limitar ou desabilitar até a janela reiniciar.",
+      "windowSpeed": "Velocidade de limite da janela (Kbps)",
+      "windowSpeedDesc": "Limite de velocidade aplicado enquanto a cota da janela estiver excedida.",
+      "bandwidthAction": {
+        "default": "Padrão (Desabilitar)",
+        "disable": "Desabilitar",
+        "throttle": "Limitar"
+      },
+      "days": "dias",
+      "depletionGraceDays": "Período de tolerância (dias)",
+      "depletionGraceDaysDesc": "Por quantos dias o cliente permanece limitado após esgotar a cota antes de ser desabilitado. 0 = ilimitado.",
+      "depletionPeriod": "Limite de tráfego na limitação",
+      "depletionPeriodDesc": "Tráfego máximo por período enquanto o cliente está limitado; ao esgotar, é desabilitado até o período rolar. Desativado = sem limite.",
+      "depletionPeriodGB": "Limite por período (GB)",
+      "depletionPeriodGBDesc": "Tráfego permitido em cada período de limitação."
     },
     "groups": {
       "name": "Nome",
@@ -2433,8 +2475,7 @@
       "disableSuccess": "✅ {{ .Email }}: Desativado com sucesso.",
       "askToAddUserId": "Sua configuração não foi encontrada!\r\nPeça ao seu administrador para usar seu Telegram ChatID em suas configurações.\r\n\r\nSeu ChatID: <code>{{ .TgUserID }}</code>",
       "chooseClient": "Escolha um cliente para Inbound {{ .Inbound }}",
-      "chooseInbound": "Escolha um Inbound",
-      "qrCodeForClient": "QR Code para o cliente {{ .Email }}:"
+      "chooseInbound": "Escolha um Inbound"
     }
   },
   "discord": {
@@ -2541,5 +2582,6 @@
     "restartXray": "Reiniciar serviço Xray",
     "restartXraySuccess": "O serviço Xray foi reiniciado com sucesso",
     "settings": "Configurações"
-  }
+  },
+  "historyUsage": "Uso histórico"
 }

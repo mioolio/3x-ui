@@ -24,6 +24,7 @@ interface SubPageData {
   downloadByte?: string | number;
   uploadByte?: string | number;
   usedByte?: string | number;
+  historyByte?: string | number;
 }
 
 interface Window {

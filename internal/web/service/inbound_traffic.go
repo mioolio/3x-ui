@@ -73,6 +73,10 @@ func (s *InboundService) addTrafficLocked(inboundTraffics []*xray.Traffic, clien
 			logger.Debugf("%v clients renewed", count)
 		}
 
+		if err := s.enforceQuotaWindows(tx, batch, windowDeltas(clientTraffics)); err != nil {
+			return fmt.Errorf("enforce quota windows: %w", err)
+		}
+
 		needRestart1, count, nodeIDs, err := s.disableInvalidClients(tx, batch)
 		if err != nil {
 			return fmt.Errorf("disable invalid clients: %w", err)
@@ -114,10 +118,12 @@ func (s *InboundService) addInboundTraffic(tx *gorm.DB, traffics []*xray.Traffic
 
 	for _, traffic := range traffics {
 		if traffic.IsInbound {
-			err = tx.Model(&model.Inbound{}).Where("tag = ? AND node_id IS NULL", traffic.Tag).
+			err = tx.Model(model.Inbound{}).Where("tag = ? AND node_id IS NULL", traffic.Tag).
 				Updates(map[string]any{
-					"up":   gorm.Expr(database.ClampedAddExpr("up"), traffic.Up),
-					"down": gorm.Expr(database.ClampedAddExpr("down"), traffic.Down),
+					"up":          gorm.Expr(database.ClampedAddExpr("up"), traffic.Up),
+					"down":        gorm.Expr(database.ClampedAddExpr("down"), traffic.Down),
+					"history_up":  gorm.Expr(database.ClampedAddExpr("history_up"), traffic.Up),
+					"history_down": gorm.Expr(database.ClampedAddExpr("history_down"), traffic.Down),
 				}).Error
 			if err != nil {
 				return err
@@ -183,12 +189,14 @@ func (s *InboundService) addClientTraffic(tx *gorm.DB, traffics []*xray.ClientTr
 		}
 		if err = tx.Exec(
 			fmt.Sprintf(
-				`UPDATE client_traffics SET up = %s, down = %s, last_online = %s WHERE email = ?`,
+				`UPDATE client_traffics SET up = %s, down = %s, history_up = %s, history_down = %s, last_online = %s WHERE email = ?`,
 				database.ClampedAddExpr("up"),
 				database.ClampedAddExpr("down"),
+				database.ClampedAddExpr("history_up"),
+				database.ClampedAddExpr("history_down"),
 				database.GreatestExpr("last_online", "?"),
 			),
-			t.Up, t.Down, now, ct.Email,
+			t.Up, t.Down, t.Up, t.Down, now, ct.Email,
 		).Error; err != nil {
 			logger.Warning("AddClientTraffic update data ", err)
 		}
@@ -492,6 +500,7 @@ func (s *InboundService) autoRenewClients(tx *gorm.DB, mutationBatch *trafficMut
 			if renewals > 0 {
 				traffic.Down = 0
 				traffic.Up = 0
+				traffic.ThrottledSince = 0
 				renewedEmails = append(renewedEmails, email)
 			}
 			if !trafficWasEnabled[email] {
@@ -660,6 +669,9 @@ func (s *InboundService) ResetClientTrafficByEmail(clientEmail string) error {
 				Updates(map[string]any{"enable": true, "up": 0, "down": 0}).Error; err != nil {
 				return err
 			}
+			if err := clearQuotaWindowState(tx, clientEmail); err != nil {
+				return err
+			}
 			return tx.Where("email = ?", clientEmail).Delete(&model.NodeClientTraffic{}).Error
 		})
 	})
@@ -749,6 +761,13 @@ func (s *InboundService) resetClientTrafficLocked(id int, clientEmail string) (b
 	traffic.Up = 0
 	traffic.Down = 0
 	traffic.Enable = true
+	traffic.WindowUsed = 0
+	traffic.WindowStarted = 0
+	traffic.WindowDisabled = false
+	traffic.PeriodUsed = 0
+	traffic.PeriodStarted = 0
+	traffic.PeriodDisabled = false
+	traffic.ThrottledSince = 0
 
 	db := database.GetDB()
 	now := time.Now().UnixMilli()

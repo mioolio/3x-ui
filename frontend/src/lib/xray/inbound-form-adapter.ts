@@ -50,6 +50,14 @@ export interface RawInboundRow {
   trafficReset?: string;
   trafficResetDay?: number;
   lastTrafficResetTime?: number;
+  planPeriod?: string;
+  planQuotaGB?: number;
+  planAction?: string;
+  planSpeed?: number;
+  windowQuotaGB?: number;
+  windowMinutes?: number;
+  windowAction?: string;
+  windowSpeed?: number;
   nodeId?: number | null;
   shareAddrStrategy?: string;
   shareAddr?: string;
@@ -71,6 +79,14 @@ export interface WireInboundPayload {
   trafficReset: TrafficReset;
   trafficResetDay: number;
   lastTrafficResetTime: number;
+  planPeriod: string;
+  planQuotaGB: number;
+  planAction: string;
+  planSpeed: number;
+  windowQuotaGB: number;
+  windowMinutes: number;
+  windowAction: string;
+  windowSpeed: number;
   listen: string;
   port: number;
   protocol: string;
@@ -111,6 +127,14 @@ function coerceTrafficReset(v: unknown): TrafficReset {
   return typeof v === 'string' && (TRAFFIC_RESETS as string[]).includes(v)
     ? (v as TrafficReset)
     : 'never';
+}
+
+function coercePlanPeriod(value: unknown): string {
+  return value === 'daily' || value === 'weekly' || value === 'monthly' ? value : '';
+}
+
+function coercePlanAction(value: unknown): string {
+  return value === 'disable' || value === 'throttle' ? value : '';
 }
 
 function coerceShareAddrStrategy(v: unknown): ShareAddrStrategy {
@@ -214,6 +238,14 @@ export function rawInboundToFormValues(row: RawInboundRow): InboundFormValues {
     total: row.total ?? 0,
     trafficReset: coerceTrafficReset(row.trafficReset),
     trafficResetDay: Math.min(31, Math.max(1, row.trafficResetDay ?? 1)),
+    planPeriod: coercePlanPeriod(row.planPeriod),
+    planQuotaGB: Math.max(0, Number(row.planQuotaGB) || 0),
+    planAction: coercePlanAction(row.planAction),
+    planSpeed: Math.max(0, Number(row.planSpeed) || 0),
+    windowQuotaGB: Math.max(0, Number(row.windowQuotaGB) || 0),
+    windowMinutes: Math.max(0, Number(row.windowMinutes) || 0),
+    windowAction: coercePlanAction(row.windowAction),
+    windowSpeed: Math.max(0, Number(row.windowSpeed) || 0),
     lastTrafficResetTime: row.lastTrafficResetTime ?? 0,
     nodeId: row.nodeId ?? null,
     shareAddrStrategy: coerceShareAddrStrategy(row.shareAddrStrategy),
@@ -372,6 +404,15 @@ export function formValuesToWirePayload(values: InboundFormValues): WireInboundP
     expiryTime: values.expiryTime,
     trafficReset: values.trafficReset,
     trafficResetDay: values.trafficResetDay,
+    planPeriod: values.planPeriod,
+    planQuotaGB: values.planQuotaGB,
+    planAction: values.planAction,
+    planSpeed: values.planAction === 'throttle' ? values.planSpeed : 0,
+    windowQuotaGB: values.windowMinutes > 0 ? values.windowQuotaGB : 0,
+    windowMinutes: values.windowMinutes,
+    windowAction: values.windowMinutes > 0 ? values.windowAction : '',
+    windowSpeed:
+      values.windowMinutes > 0 && values.windowAction === 'throttle' ? values.windowSpeed : 0,
     lastTrafficResetTime: values.lastTrafficResetTime,
     listen: values.listen,
     port: values.port,

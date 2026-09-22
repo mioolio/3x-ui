@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
@@ -90,6 +91,51 @@ func (s *InboundService) disableInvalidClients(tx *gorm.DB, mutationBatch *traff
 	}
 	if len(depletedRows) == 0 {
 		return false, 0, nil, nil
+	}
+
+	// Clients configured to throttle on depletion stay connected at their
+	// reduced rate — the throttle sync enforces that; hard-disabling them here
+	// would undo the opt-in behaviour every tick. The grace clock caps how
+	// long that leniency lasts: once throttled_since + graceDays has passed,
+	// the client falls back to the normal depleted disable.
+	type throttleRow struct {
+		Email          string
+		GraceDays      int
+		ThrottledSince int64
+	}
+	var throttleRows []throttleRow
+	if err := tx.Table("clients").
+		Select(`clients.email AS email,
+			COALESCE(clients.depletion_grace_days, 0) AS grace_days,
+			COALESCE(client_traffics.throttled_since, 0) AS throttled_since`).
+		Joins("JOIN client_traffics ON client_traffics.email = clients.email").
+		Where("COALESCE(clients.depletion_action, '') = ?", "throttle").
+		Find(&throttleRows).Error; err != nil {
+		return false, 0, nil, err
+	}
+	if len(throttleRows) > 0 {
+		now := time.Now().UnixMilli()
+		throttleSet := make(map[string]struct{}, len(throttleRows))
+		for _, r := range throttleRows {
+			graceExpired := r.GraceDays > 0 && r.ThrottledSince > 0 &&
+				now >= r.ThrottledSince+int64(r.GraceDays)*86400000
+			if !graceExpired {
+				throttleSet[strings.ToLower(r.Email)] = struct{}{}
+			}
+		}
+		if len(throttleSet) > 0 {
+			kept := depletedRows[:0]
+			for i := range depletedRows {
+				if _, skip := throttleSet[strings.ToLower(depletedRows[i].Email)]; skip {
+					continue
+				}
+				kept = append(kept, depletedRows[i])
+			}
+			depletedRows = kept
+			if len(depletedRows) == 0 {
+				return false, 0, nil, nil
+			}
+		}
 	}
 
 	depletedEmails := make([]string, 0, len(depletedRows))

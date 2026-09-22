@@ -46,6 +46,7 @@ const heroData = {
   daysLeft: daysUntil(expireMs, loadedAt),
   usedByte,
   totalByte,
+  historyByte: Number(subData.historyByte || 0),
   expireMs,
   lastOnlineMs: Number(subData.lastOnline || 0),
   download: subData.download || '0',

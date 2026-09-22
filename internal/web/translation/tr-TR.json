@@ -105,7 +105,8 @@
     "support": "Destek",
     "qrTitle": "Tara. İçe aktar. Bağlan.",
     "qrHint": "İstemci uygulamanızla tarayın. Bu kodu kimseyle paylaşmayın.",
-    "saveQr": "QR'ı kaydet"
+    "saveQr": "QR'ı kaydet",
+    "historyUsage": "Geçmiş Kullanım"
   },
   "menu": {
     "theme": "Tema",
@@ -711,7 +712,20 @@
         "peerNumberConfig": "Peer {n} Yapılandırması"
       },
       "sniffingDestOverride": "Hedef geçersiz kılma",
-      "advancedTitle": "Gelişmiş Ayarlar"
+      "advancedTitle": "Gelişmiş Ayarlar",
+      "plan": {
+        "period": "Trafik Planı Dönemi",
+        "periodHelp": "Bu gelen bağlantıdaki her istemci için dönemsel kota; her istemcinin ilk kullanımından itibaren sayılır. İstemciler kendi ayarıyla geçebilir.",
+        "disabled": "Kapalı",
+        "quota": "Dönem Başına Kota (GB)",
+        "quotaHelp": "Her istemcinin plan dönemi başına kullanabileceği trafik; toplam kota yine önce uygulanır.",
+        "action": "Aşımda",
+        "speed": "Kısıt Hızı (Kbps)",
+        "windowQuota": "Pencere Kotası (GB)",
+        "windowQuotaHelp": "Plan dönemine ek olarak kısa pencere kotası (ör. her 2 saatte 500MB); istemci başına, ilk kullanımdan itibaren.",
+        "windowMinutes": "Pencere Süresi (Dakika)",
+        "windowMinutesHelp": "Kota penceresinin uzunluğu, örn. 120 = iki saat; 0 = kapalı."
+      }
     },
     "clients": {
       "tabBasics": "Temel",
@@ -946,7 +960,35 @@
       "renewOnDayDesc": "Her N günde bir yerine, her takvim ayının bu gününde, panel saat diliminde gece yarısı yeniler. Seçilen gün için kısa olan aylarda ayın son gününde yeniler. 0 gün aralığı modunu korur.",
       "renewsUsed": "Kullanılan yenileme",
       "tuicTotalGBDesc": "TUIC does not support per-client traffic limits; set traffic limit on the inbound instead.",
-      "bulkAdTagHint": "Aramak için 32 karakterlik onaltılık etiket girin veya MTProto üzerinde temizlemek için 'none' yazın."
+      "bulkAdTagHint": "Aramak için 32 karakterlik onaltılık etiket girin veya MTProto üzerinde temizlemek için 'none' yazın.",
+      "speedLimitUp": "Yükleme Hız Sınırı (Kbps)",
+      "speedLimitUpDesc": "Bu istemci için sürekli yükleme sınırı. 0 = sınırsız.",
+      "speedLimitDown": "İndirme Hız Sınırı (Kbps)",
+      "speedLimitDownDesc": "Bu istemci için sürekli indirme sınırı. 0 = sınırsız.",
+      "depletionAction": "Kota/Süre Bitiminde",
+      "depletionActionDesc": "Trafik limitine veya son kullanma tarihine ulaşıldığında: istemciyi devre dışı bırak (varsayılan) veya düşük hızda bağlı tut.",
+      "depletionSpeed": "Kısıt Hızı (Kbps)",
+      "depletionSpeedDesc": "Kota tükenince veya süre bitince uygulanan yükleme/indirme hız sınırı.",
+      "windowQuotaGB": "Pencere Kotası (GB)",
+      "windowQuotaGBDesc": "Her kota penceresinde izin verilen trafik, toplam limanın üzerinde. 0 = pencere yok.",
+      "windowMinutes": "Pencere Süresi (Dakika)",
+      "windowMinutesDesc": "Kota penceresinin uzunluğu; pencere otomatik kayar. 0 = kapalı.",
+      "windowAction": "Pencere Aşımında",
+      "windowActionDesc": "Pencere kotası aşıldığında: pencere sıfırlanana kadar kısıtla veya devre dışı bırak.",
+      "windowSpeed": "Pencere Kısıt Hızı (Kbps)",
+      "windowSpeedDesc": "Pencere kotası aşıldığında uygulanan hız sınırı.",
+      "bandwidthAction": {
+        "default": "Varsayılan (Devre dışı)",
+        "disable": "Devre dışı",
+        "throttle": "Kısıtla"
+      },
+      "days": "gün",
+      "depletionGraceDays": "Hoşgörü Süresi (Gün)",
+      "depletionGraceDaysDesc": "Kotasını tükettikten sonra istemcinin kaç gün kısıtlanmış hızda kalacağı; sonrasında devre dışı bırakılır. 0 = sınırsız.",
+      "depletionPeriod": "Kısıt Trafiği Sınırı",
+      "depletionPeriodDesc": "Kısıtlanmış durumda dönem başına en fazla trafik; bitince dönem kayana kadar devre dışı kalır. Kapalı = sınır yok.",
+      "depletionPeriodGB": "Dönem Başına Sınır (GB)",
+      "depletionPeriodGBDesc": "Her kısıtlı dönemde izin verilen trafik."
     },
     "groups": {
       "name": "İsim",
@@ -2433,8 +2475,7 @@
       "disableSuccess": "✅ {{ .Email }}: Başarıyla devre dışı bırakıldı.",
       "askToAddUserId": "Yapılandırmanız bulunamadı!\r\nLütfen yöneticinizden Telegram Chat ID'nizi yapılandırmanıza eklemesini isteyin.\r\n\r\nSizin Chat ID'niz: <code>{{ .TgUserID }}</code>",
       "chooseClient": "Gelen Bağlantı {{ .Inbound }} için bir Kullanıcı Seçin",
-      "chooseInbound": "Bir Gelen Bağlantı Seçin",
-      "qrCodeForClient": "{{ .Email }} istemcisi için QR Kodu:"
+      "chooseInbound": "Bir Gelen Bağlantı Seçin"
     }
   },
   "discord": {
@@ -2541,5 +2582,6 @@
     "restartXray": "Xray Hizmetini Yeniden Başlat",
     "restartXraySuccess": "Xray hizmeti başarıyla yeniden başlatıldı",
     "settings": "Ayarlar"
-  }
+  },
+  "historyUsage": "Geçmiş Kullanım"
 }

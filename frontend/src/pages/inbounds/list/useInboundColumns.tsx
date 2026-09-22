@@ -407,6 +407,16 @@ export function useInboundColumns({
                       <td>{SizeFormatter.sizeFormat(record.total - record.up - record.down)}</td>
                     </tr>
                   )}
+                  {(record.historyUp ?? 0) + (record.historyDown ?? 0) > 0 && (
+                    <tr>
+                      <td>{t('historyUsage')}</td>
+                      <td>
+                        {SizeFormatter.sizeFormat(
+                          (record.historyUp ?? 0) + (record.historyDown ?? 0),
+                        )}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             }

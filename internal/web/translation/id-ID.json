@@ -105,7 +105,8 @@
     "support": "Dukungan",
     "qrTitle": "Pindai. Impor. Terhubung.",
     "qrHint": "Pindai dengan aplikasi klien Anda. Jaga kerahasiaan kode ini.",
-    "saveQr": "Simpan QR"
+    "saveQr": "Simpan QR",
+    "historyUsage": "Penggunaan Histori"
   },
   "menu": {
     "theme": "Tema",
@@ -596,7 +597,7 @@
         "customSockopt": "Sockopt kustom",
         "addCustomOption": "Tambah opsi kustom",
         "serverNameIndication": "SNI",
-        "cipherSuites": "Rangkaian Sandi",
+        "cipherSuites": "Cipher Suites",
         "autoOption": "Otomatis",
         "minMaxVersion": "Versi Min/Maks",
         "rejectUnknownSni": "Tolak SNI tidak dikenal",
@@ -711,7 +712,20 @@
         "peerNumberConfig": "Konfig Peer {n}"
       },
       "sniffingDestOverride": "Penggantian tujuan",
-      "advancedTitle": "Pengaturan Lanjutan"
+      "advancedTitle": "Pengaturan Lanjutan",
+      "plan": {
+        "period": "Periode Rencana Trafik",
+        "periodHelp": "Kuota berkala per klien untuk semua klien pada inbound ini, dihitung dari penggunaan pertama masing-masing. Klien dapat menimpanya dengan pengaturannya sendiri.",
+        "disabled": "Nonaktif",
+        "quota": "Kuota per Periode (GB)",
+        "quotaHelp": "Trafik yang boleh dipakai setiap klien per periode rencana; kuota total tetap berlaku lebih dulu.",
+        "action": "Saat Terlampaui",
+        "speed": "Kecepatan Pembatasan (Kbps)",
+        "windowQuota": "Kuota Jendela (GB)",
+        "windowQuotaHelp": "Kuota jendela pendek (mis. 500MB setiap 2 jam) di luar periode rencana; per klien, dari penggunaan pertama.",
+        "windowMinutes": "Durasi Jendela (Menit)",
+        "windowMinutesHelp": "Panjang jendela kuota, mis. 120 = dua jam; 0 = nonaktif."
+      }
     },
     "clients": {
       "tabBasics": "Dasar",
@@ -946,7 +960,35 @@
       "renewOnDayDesc": "Perpanjang pada tanggal ini setiap bulan kalender, pada tengah malam menurut zona waktu panel, alih-alih setiap N hari. Bulan yang terlalu pendek untuk tanggal yang dipilih diperpanjang pada hari terakhirnya. 0 mempertahankan mode interval hari.",
       "renewsUsed": "Perpanjangan terpakai",
       "tuicTotalGBDesc": "TUIC does not support per-client traffic limits; set traffic limit on the inbound instead.",
-      "bulkAdTagHint": "Masukkan tag heksadesimal 32 karakter untuk mengatur, atau 'none' untuk menghapus pada MTProto."
+      "bulkAdTagHint": "Masukkan tag heksadesimal 32 karakter untuk mengatur, atau 'none' untuk menghapus pada MTProto.",
+      "speedLimitUp": "Batas Kecepatan Unggah (Kbps)",
+      "speedLimitUpDesc": "Batas unggah permanen untuk klien ini. 0 = tanpa batas.",
+      "speedLimitDown": "Batas Kecepatan Unduh (Kbps)",
+      "speedLimitDownDesc": "Batas unduh permanen untuk klien ini. 0 = tanpa batas.",
+      "depletionAction": "Saat Kuota Habis/Kedaluwarsa",
+      "depletionActionDesc": "Saat mencapai batas trafik atau kedaluwarsa: nonaktifkan klien (bawaan) atau tetap hubungkan dengan kecepatan turun.",
+      "depletionSpeed": "Kecepatan Pembatasan (Kbps)",
+      "depletionSpeedDesc": "Batas unggah/unduh yang diterapkan setelah kuota habis atau kedaluwarsa.",
+      "windowQuotaGB": "Kuota Jendela (GB)",
+      "windowQuotaGBDesc": "Trafik yang diizinkan per jendela kuota, di luar batas total. 0 = tanpa jendela.",
+      "windowMinutes": "Durasi Jendela (Menit)",
+      "windowMinutesDesc": "Panjang jendela kuota; bergeser otomatis. 0 = nonaktif.",
+      "windowAction": "Saat Jendela Terlampaui",
+      "windowActionDesc": "Saat kuota jendela terlampaui: batasi atau nonaktifkan sampai jendela direset.",
+      "windowSpeed": "Kecepatan Batas Jendela (Kbps)",
+      "windowSpeedDesc": "Batas kecepatan saat kuota jendela terlampaui.",
+      "bandwidthAction": {
+        "default": "Bawaan (Nonaktif)",
+        "disable": "Nonaktif",
+        "throttle": "Batasi"
+      },
+      "days": "hari",
+      "depletionGraceDays": "Masa Toleransi (Hari)",
+      "depletionGraceDaysDesc": "Berapa hari klien tetap dibatasi kecepatannya setelah kuota habis sebelum dinonaktifkan. 0 = tanpa batas.",
+      "depletionPeriod": "Batas Trafik Saat Dibatasi",
+      "depletionPeriodDesc": "Trafik maksimum per periode selama klien dibatasi; habis maka dinonaktifkan sampai periode bergulir. Nonaktif = tanpa batas.",
+      "depletionPeriodGB": "Batas per Periode (GB)",
+      "depletionPeriodGBDesc": "Trafik yang diizinkan pada setiap periode pembatasan."
     },
     "groups": {
       "name": "Nama",
@@ -2433,8 +2475,7 @@
       "disableSuccess": "✅ {{ .Email }}: Dinonaktifkan dengan berhasil.",
       "askToAddUserId": "Konfigurasi Anda tidak ditemukan!\r\nSilakan minta admin Anda untuk menggunakan ChatID Telegram Anda dalam konfigurasi Anda.\r\n\r\nChatID Pengguna Anda: <code>{{ .TgUserID }}</code>",
       "chooseClient": "Pilih Klien untuk Inbound {{ .Inbound }}",
-      "chooseInbound": "Pilih Inbound",
-      "qrCodeForClient": "Kode QR untuk klien {{ .Email }}:"
+      "chooseInbound": "Pilih Inbound"
     }
   },
   "discord": {
@@ -2541,5 +2582,6 @@
     "restartXray": "Mulai Ulang Layanan Xray",
     "restartXraySuccess": "Layanan Xray berhasil dimulai ulang",
     "settings": "Pengaturan"
-  }
+  },
+  "historyUsage": "Penggunaan Histori"
 }

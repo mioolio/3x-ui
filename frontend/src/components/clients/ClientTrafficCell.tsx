@@ -12,6 +12,8 @@ export interface ClientTrafficCellProps {
   up?: number;
   down?: number;
   total?: number;
+  historyUp?: number;
+  historyDown?: number;
   enabled?: boolean;
   trafficDiff?: number;
   compact?: boolean;
@@ -25,6 +27,8 @@ const ClientTrafficCell = memo(function ClientTrafficCell({
   up = 0,
   down = 0,
   total = 0,
+  historyUp = 0,
+  historyDown = 0,
   enabled = true,
   trafficDiff = 0,
   compact = false,
@@ -50,6 +54,12 @@ const ClientTrafficCell = memo(function ClientTrafficCell({
           <tr>
             <td colSpan={2}>{t('remained')}</td>
             <td colSpan={2}>{SizeFormatter.sizeFormat(display.remaining)}</td>
+          </tr>
+        )}
+        {historyUp + historyDown > 0 && (
+          <tr>
+            <td colSpan={2}>{t('historyUsage')}</td>
+            <td colSpan={2}>{SizeFormatter.sizeFormat(historyUp + historyDown)}</td>
           </tr>
         )}
       </tbody>

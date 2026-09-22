@@ -105,7 +105,8 @@
     "support": "Support",
     "qrTitle": "Scan. Import. Connect.",
     "qrHint": "Scan with your client app. Keep this code private.",
-    "saveQr": "Save QR"
+    "saveQr": "Save QR",
+    "historyUsage": "History Usage"
   },
   "menu": {
     "theme": "Theme",
@@ -711,7 +712,20 @@
         "peerNumber": "Peer {n}",
         "peerNumberConfig": "Peer {n} config"
       },
-      "sniffingDestOverride": "Destination override"
+      "sniffingDestOverride": "Destination override",
+      "plan": {
+        "period": "Traffic Plan Period",
+        "periodHelp": "Per-client periodic quota for everyone on this inbound, counted from each client's first use. Clients can override it with their own setting.",
+        "disabled": "Disabled",
+        "quota": "Quota per Period (GB)",
+        "quotaHelp": "Traffic each client may use per plan period; the total quota still applies first.",
+        "action": "When Exceeded",
+        "speed": "Throttle Speed (Kbps)",
+        "windowQuota": "Window Quota (GB)",
+        "windowQuotaHelp": "Short-window quota (e.g. 500MB every 2 hours) on top of the plan period; per client, counted from first use.",
+        "windowMinutes": "Window Length (Minutes)",
+        "windowMinutesHelp": "Length of the quota window, e.g. 120 for two hours; 0 disables the window."
+      }
     },
     "clients": {
       "tabBasics": "Basics",
@@ -946,7 +960,35 @@
       "renewOnDayDesc": "Renew on this day of every calendar month, at midnight in the panel's time zone, instead of every N days. A month too short for the chosen day renews on its last day. 0 keeps the day-interval mode.",
       "renewsUsed": "Renewals used",
       "tuicTotalGBDesc": "TUIC does not support per-client traffic limits; set traffic limit on the inbound instead.",
-      "bulkAdTagHint": "Enter a 32-character hex tag to set, or 'none' to clear sponsor channel on MTProto inbounds."
+      "bulkAdTagHint": "Enter a 32-character hex tag to set, or 'none' to clear sponsor channel on MTProto inbounds.",
+      "speedLimitUp": "Upload Speed Limit (Kbps)",
+      "speedLimitUpDesc": "Always-on upload cap for this client. 0 = unlimited.",
+      "speedLimitDown": "Download Speed Limit (Kbps)",
+      "speedLimitDownDesc": "Always-on download cap for this client. 0 = unlimited.",
+      "depletionAction": "On Quota/Expiry",
+      "depletionActionDesc": "What happens when the traffic limit or expiry is reached: disable the client (default) or keep it connected at a reduced speed.",
+      "depletionSpeed": "Throttle Speed (Kbps)",
+      "depletionSpeedDesc": "Upload and download speed cap applied after the quota is exhausted or the client expires.",
+      "windowQuotaGB": "Window Quota (GB)",
+      "windowQuotaGBDesc": "Traffic allowed per quota window, on top of the total limit. 0 = no window.",
+      "windowMinutes": "Window Length (Minutes)",
+      "windowMinutesDesc": "Length of the quota window. The window slides automatically; 0 disables window quota.",
+      "windowAction": "On Window Overrun",
+      "windowActionDesc": "What happens when the window quota is exceeded: throttle or disable until the window resets.",
+      "windowSpeed": "Window Throttle Speed (Kbps)",
+      "windowSpeedDesc": "Speed cap applied while the window quota is exceeded.",
+      "bandwidthAction": {
+        "default": "Default (Disable)",
+        "disable": "Disable",
+        "throttle": "Throttle"
+      },
+      "days": "days",
+      "depletionGraceDays": "Grace Period (Days)",
+      "depletionGraceDaysDesc": "How many days the client stays throttled after exhausting its quota before being disabled. 0 = unlimited.",
+      "depletionPeriod": "Throttle Traffic Cap",
+      "depletionPeriodDesc": "Maximum traffic per period while the client is throttled; when it runs out the client is disabled until the period rolls over. Disabled = no cap.",
+      "depletionPeriodGB": "Cap per Period (GB)",
+      "depletionPeriodGBDesc": "Traffic allowed in each throttled period."
     },
     "groups": {
       "name": "Name",
@@ -2433,8 +2475,7 @@
       "disableSuccess": "✅ {{ .Email }}: Disabled successfully.",
       "askToAddUserId": "Your configuration is not found!\r\nPlease ask your admin to use your Telegram ChatID in your configuration(s).\r\n\r\nYour ChatID: <code>{{ .TgUserID }}</code>",
       "chooseClient": "Choose a Client for Inbound {{ .Inbound }}",
-      "chooseInbound": "Choose an Inbound",
-      "qrCodeForClient": "QRCode for client {{ .Email }}:"
+      "chooseInbound": "Choose an Inbound"
     }
   },
   "discord": {
@@ -2541,5 +2582,6 @@
     "restartXray": "Restart Xray Service",
     "restartXraySuccess": "Xray has been successfully relaunched",
     "settings": "Settings"
-  }
+  },
+  "historyUsage": "History Usage"
 }

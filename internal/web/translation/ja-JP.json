@@ -105,7 +105,8 @@
     "support": "サポート",
     "qrTitle": "スキャン。インポート。接続。",
     "qrHint": "クライアントアプリでスキャンしてください。このコードは他人に見せないでください。",
-    "saveQr": "QR を保存"
+    "saveQr": "QR を保存",
+    "historyUsage": "履歴使用量"
   },
   "menu": {
     "theme": "テーマ",
@@ -617,7 +618,7 @@
         "customSockopt": "カスタム sockopt",
         "addCustomOption": "カスタムオプション追加",
         "serverNameIndication": "SNI",
-        "cipherSuites": "暗号スイート",
+        "cipherSuites": "Cipher Suites",
         "autoOption": "自動",
         "minMaxVersion": "最小/最大バージョン",
         "rejectUnknownSni": "未知の SNI を拒否",
@@ -711,7 +712,20 @@
         "peerNumberConfig": "Peer {n} 設定"
       },
       "sniffingDestOverride": "宛先のオーバーライド",
-      "advancedTitle": "詳細設定"
+      "advancedTitle": "詳細設定",
+      "plan": {
+        "period": "トラフィックプラン期間",
+        "periodHelp": "このインバウンドの全クライアントに適用される期間ごとの quota。各クライアントの初回使用から起算。クライアント側の設定で上書きできます。",
+        "disabled": "無効",
+        "quota": "期間ごとの容量 (GB)",
+        "quotaHelp": "各クライアントがプラン期間ごとに使えるトラフィック。合計容量が先に適用されます。",
+        "action": "超過時",
+        "speed": "制限速度 (Kbps)",
+        "windowQuota": "ウィンドウ容量 (GB)",
+        "windowQuotaHelp": "プラン期間に加えて短いウィンドウの容量（例：2時間ごとに500MB）。クライアントごとに初回使用から起算。",
+        "windowMinutes": "ウィンドウ長（分）",
+        "windowMinutesHelp": "ウィンドウ容量の期間。例：120 = 2時間。0 = 無効。"
+      }
     },
     "clients": {
       "tabBasics": "基本",
@@ -946,7 +960,35 @@
       "renewOnDayDesc": "毎月この日の深夜（パネルのタイムゾーン基準）に更新します。N 日ごとの更新の代わりになります。その日が存在しない月は月末に更新されます。0 で日数間隔モードのままになります。",
       "renewsUsed": "使用済み更新回数",
       "tuicTotalGBDesc": "TUIC does not support per-client traffic limits; set traffic limit on the inbound instead.",
-      "bulkAdTagHint": "設定するには 32 文字の 16 進数タグを入力し、クリアするには 'none' を入力します (MTProto 用)。"
+      "bulkAdTagHint": "設定するには 32 文字の 16 進数タグを入力し、クリアするには 'none' を入力します (MTProto 用)。",
+      "speedLimitUp": "アップロード速度制限 (Kbps)",
+      "speedLimitUpDesc": "このクライアントの常時アップロード制限。0 = 無制限。",
+      "speedLimitDown": "ダウンロード速度制限 (Kbps)",
+      "speedLimitDownDesc": "このクライアントの常時ダウンロード制限。0 = 無制限。",
+      "depletionAction": "容量超過・期限切れ時",
+      "depletionActionDesc": "トラフィック上限または有効期限に達した場合：クライアントを無効化（デフォルト）、または低速のまま接続を維持。",
+      "depletionSpeed": "制限速度 (Kbps)",
+      "depletionSpeedDesc": "容量超過・期限切れ後に適用される上り/下りの速度制限。",
+      "windowQuotaGB": "ウィンドウ容量 (GB)",
+      "windowQuotaGBDesc": "各ウィンドウで許容されるトラフィック。合計上限とは別に適用。0 = 無効。",
+      "windowMinutes": "ウィンドウ長 (分)",
+      "windowMinutesDesc": "ウィンドウ容量の期間。自動でスライドします。0 = 無効。",
+      "windowAction": "ウィンドウ超過時",
+      "windowActionDesc": "ウィンドウ容量を超えた場合：リセットまで制限または無効化。",
+      "windowSpeed": "ウィンドウ制限速度 (Kbps)",
+      "windowSpeedDesc": "ウィンドウ容量超過中に適用される速度制限。",
+      "bandwidthAction": {
+        "default": "デフォルト（無効化）",
+        "disable": "無効化",
+        "throttle": "制限"
+      },
+      "days": "日",
+      "depletionGraceDays": "猶予期間（日）",
+      "depletionGraceDaysDesc": "クライアントが容量を使い切った後、何日間速度制限状態でいられるか。0 = 無期限。",
+      "depletionPeriod": "制限中のトラフィック上限",
+      "depletionPeriodDesc": "制限中の期間ごとの最大トラフィック。使い切ると期間が更新されるまで無効化。無効 = 上限なし。",
+      "depletionPeriodGB": "期間ごとの上限 (GB)",
+      "depletionPeriodGBDesc": "各制限期間で許容されるトラフィック。"
     },
     "groups": {
       "name": "名前",
@@ -2433,8 +2475,7 @@
       "disableSuccess": "✅ {{ .Email }}：正常に無効化されました。",
       "askToAddUserId": "設定が見つかりませんでした！\r\n管理者に問い合わせて、設定にTelegramユーザーのChatIDを使用してください。\r\n\r\nあなたのユーザーChatID：<code>{{ .TgUserID }}</code>",
       "chooseClient": "インバウンド {{ .Inbound }} のクライアントを選択",
-      "chooseInbound": "インバウンドを選択",
-      "qrCodeForClient": "クライアント {{ .Email }} のQRコード:"
+      "chooseInbound": "インバウンドを選択"
     }
   },
   "discord": {
@@ -2541,5 +2582,6 @@
     "restartXray": "Xrayサービスを再起動",
     "restartXraySuccess": "Xrayサービスが正常に再起動されました",
     "settings": "設定"
-  }
+  },
+  "historyUsage": "履歴使用量"
 }
