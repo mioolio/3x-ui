@@ -16,10 +16,6 @@ type QuotaInfo struct {
 	WindowUsed    int64  `json:"windowUsed"`
 	WindowEnd     int64  `json:"windowEnd"` // unix seconds of the running window's rollover
 	WindowMinutes int    `json:"windowMinutes"`
-	PlanPeriod    string `json:"planPeriod"` // daily / weekly / monthly, empty = off
-	PlanQuota     int64  `json:"planQuota"`
-	PeriodUsed    int64  `json:"periodUsed"`
-	PlanEnd       int64  `json:"planEnd"` // unix seconds of the running period's rollover
 	// Effective rate caps in Kbps (0 = unlimited): the strictest of the
 	// always-on limit and any currently active throttle.
 	SpeedUp        int   `json:"speedUp"`
@@ -61,7 +57,6 @@ func (s *SubService) QuotaDetails(subId string, traffic xray.ClientTraffic) Quot
 	nowSec := nowMs / 1000
 	info := QuotaInfo{
 		WindowUsed:     traffic.WindowUsed,
-		PeriodUsed:     traffic.PeriodUsed,
 		ThrottledSince: traffic.ThrottledSince,
 		TotalQuota:     traffic.Total,
 		Used:           traffic.Up + traffic.Down,
@@ -94,30 +89,20 @@ func (s *SubService) QuotaDetails(subId string, traffic xray.ClientTraffic) Quot
 		inbounds = nil
 	}
 
-	// Client-level config: the first record with each layer wins (a subId
-	// normally maps to exactly one client).
-	var cWindow, cPeriod *model.ClientRecord
+	// Client-level config wins; inbound-level window is the fallback. The
+	// strictest (smallest quota) configured inbound applies across inbounds.
+	var cWindow *model.ClientRecord
 	for i := range records {
-		r := &records[i]
-		if cWindow == nil && r.WindowMinutes > 0 {
-			cWindow = r
-		}
-		if cPeriod == nil {
-			if _, ok := periodMinutes[r.DepletionPeriod]; ok && r.DepletionPeriodGB > 0 {
-				cPeriod = r
-			}
+		if records[i].WindowMinutes > 0 {
+			cWindow = &records[i]
+			break
 		}
 	}
-	// Inbound-level config: the strictest (smallest quota) configured inbound.
-	var iWindow, iPeriod *model.Inbound
+	var iWindow *model.Inbound
 	for i := range inbounds {
 		ib := &inbounds[i]
 		if ib.WindowMinutes > 0 && (iWindow == nil || ib.WindowQuotaGB < iWindow.WindowQuotaGB) {
 			iWindow = ib
-		}
-		if _, ok := periodMinutes[ib.PlanPeriod]; ok && ib.PlanQuotaGB > 0 &&
-			(iPeriod == nil || ib.PlanQuotaGB < iPeriod.PlanQuotaGB) {
-			iPeriod = ib
 		}
 	}
 
@@ -137,25 +122,6 @@ func (s *SubService) QuotaDetails(subId string, traffic xray.ClientTraffic) Quot
 		}
 	}
 
-	// Effective period layer. While depletion-throttled, the client's own
-	// periodic cap replaces the inbound's plan (the pipeline enforces the
-	// client cap as a disable); the inbound plan applies otherwise.
-	planPeriod, planQuota, planAction, planSpeed := "", int64(0), "", 0
-	if cPeriod != nil && info.ThrottledSince > 0 {
-		planPeriod, planQuota = cPeriod.DepletionPeriod, cPeriod.DepletionPeriodGB
-	} else if iPeriod != nil {
-		planPeriod, planQuota = iPeriod.PlanPeriod, iPeriod.PlanQuotaGB
-		planAction, planSpeed = iPeriod.PlanAction, iPeriod.PlanSpeed
-	}
-	planMinutes := 0
-	if planPeriod != "" {
-		info.PlanPeriod, info.PlanQuota = planPeriod, planQuota
-		planMinutes = periodMinutes[planPeriod]
-		if traffic.PeriodStarted > 0 {
-			info.PlanEnd = (traffic.PeriodStarted + int64(planMinutes)*60000) / 1000
-		}
-	}
-
 	// Effective caps: always-on limit, then any throttle active right now.
 	var speedUp, speedDown int
 	depleted := (traffic.Total > 0 && traffic.Up+traffic.Down >= traffic.Total) ||
@@ -171,10 +137,6 @@ func (s *SubService) QuotaDetails(subId string, traffic xray.ClientTraffic) Quot
 	if windowAction == "throttle" && windowMinutes > 0 && traffic.WindowStarted > 0 &&
 		nowSec < info.WindowEnd && traffic.WindowUsed > windowQuota {
 		throttle = strictestKbps(throttle, windowSpeed)
-	}
-	if planAction == "throttle" && planMinutes > 0 && traffic.PeriodStarted > 0 &&
-		nowSec < info.PlanEnd && traffic.PeriodUsed > planQuota {
-		throttle = strictestKbps(throttle, planSpeed)
 	}
 	info.SpeedUp = strictestKbps(speedUp, throttle)
 	info.SpeedDown = strictestKbps(speedDown, throttle)

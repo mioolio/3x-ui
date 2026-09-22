@@ -108,18 +108,11 @@
     "saveQr": "Salvar QR",
     "historyUsage": "Uso histórico",
     "tabQuota": "Cota",
-    "planQuota": "Cota do plano",
     "windowQuota": "Cota da janela",
     "resets": "Reinicia",
     "resetsIn": "{hours} h {minutes} min",
     "resetsInDays": "{days} d {hours} h",
     "throttledNow": "Atualmente limitado",
-    "currentUsage": "Uso do período atual",
-    "period": {
-      "daily": "Diário",
-      "weekly": "Semanal",
-      "monthly": "Mensal"
-    },
     "maxSpeed": "Velocidade máxima"
   },
   "menu": {
@@ -726,20 +719,7 @@
         "peerNumberConfig": "Config Peer {n}"
       },
       "sniffingDestOverride": "Substituição de destino",
-      "advancedTitle": "Configurações avançadas",
-      "plan": {
-        "period": "Período do plano de tráfego",
-        "periodHelp": "Cota periódica por cliente para todos neste inbound, contada do primeiro uso de cada cliente. O cliente pode sobrescrever com a própria configuração.",
-        "disabled": "Desativado",
-        "quota": "Cota por período (GB)",
-        "quotaHelp": "Tráfego que cada cliente pode usar por período do plano; a cota total ainda se aplica primeiro.",
-        "action": "Ao exceder",
-        "speed": "Velocidade de limitação (Kbps)",
-        "windowQuota": "Cota da janela (GB)",
-        "windowQuotaHelp": "Cota de janela curta (ex.: 500MB a cada 2 horas) além do período do plano; por cliente, do primeiro uso.",
-        "windowMinutes": "Duração da janela (minutos)",
-        "windowMinutesHelp": "Duração da janela de cota, ex.: 120 = duas horas; 0 = desativada."
-      }
+      "advancedTitle": "Configurações avançadas"
     },
     "clients": {
       "tabBasics": "Básico",

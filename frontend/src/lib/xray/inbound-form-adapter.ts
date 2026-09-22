@@ -50,10 +50,6 @@ export interface RawInboundRow {
   trafficReset?: string;
   trafficResetDay?: number;
   lastTrafficResetTime?: number;
-  planPeriod?: string;
-  planQuotaGB?: number;
-  planAction?: string;
-  planSpeed?: number;
   windowQuotaGB?: number;
   windowMinutes?: number;
   windowAction?: string;
@@ -79,10 +75,6 @@ export interface WireInboundPayload {
   trafficReset: TrafficReset;
   trafficResetDay: number;
   lastTrafficResetTime: number;
-  planPeriod: string;
-  planQuotaGB: number;
-  planAction: string;
-  planSpeed: number;
   windowQuotaGB: number;
   windowMinutes: number;
   windowAction: string;
@@ -140,10 +132,6 @@ function bytesToGB(bytes: number): number {
 function gbToBytes(gb: number): number {
   if (!gb || gb <= 0) return 0;
   return Math.round(gb * ONE_GB);
-}
-
-function coercePlanPeriod(value: unknown): string {
-  return value === 'daily' || value === 'weekly' || value === 'monthly' ? value : '';
 }
 
 function coercePlanAction(value: unknown): string {
@@ -251,10 +239,6 @@ export function rawInboundToFormValues(row: RawInboundRow): InboundFormValues {
     total: row.total ?? 0,
     trafficReset: coerceTrafficReset(row.trafficReset),
     trafficResetDay: Math.min(31, Math.max(1, row.trafficResetDay ?? 1)),
-    planPeriod: coercePlanPeriod(row.planPeriod),
-    planQuotaGB: bytesToGB(Math.max(0, Number(row.planQuotaGB) || 0)),
-    planAction: coercePlanAction(row.planAction),
-    planSpeed: Math.max(0, Number(row.planSpeed) || 0),
     windowQuotaGB: bytesToGB(Math.max(0, Number(row.windowQuotaGB) || 0)),
     windowMinutes: Math.max(0, Number(row.windowMinutes) || 0),
     windowAction: coercePlanAction(row.windowAction),
@@ -417,10 +401,6 @@ export function formValuesToWirePayload(values: InboundFormValues): WireInboundP
     expiryTime: values.expiryTime,
     trafficReset: values.trafficReset,
     trafficResetDay: values.trafficResetDay,
-    planPeriod: values.planPeriod,
-    planQuotaGB: gbToBytes(Math.max(0, Number(values.planQuotaGB) || 0)),
-    planAction: values.planAction,
-    planSpeed: values.planAction === 'throttle' ? values.planSpeed : 0,
     windowQuotaGB: values.windowMinutes > 0 ? gbToBytes(Math.max(0, Number(values.windowQuotaGB) || 0)) : 0,
     windowMinutes: values.windowMinutes,
     windowAction: values.windowMinutes > 0 ? values.windowAction : '',

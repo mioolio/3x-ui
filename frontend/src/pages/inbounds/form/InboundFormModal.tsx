@@ -292,8 +292,6 @@ export default function InboundFormModal({
   const wTotal = (useWatch({ control, name: 'total' }) as number | undefined) ?? 0;
   const wExpiry = (useWatch({ control, name: 'expiryTime' }) as number | undefined) ?? 0;
   const trafficReset = useWatch({ control, name: 'trafficReset' }) ?? 'never';
-  const planPeriod = useWatch({ control, name: 'planPeriod' }) ?? '';
-  const planAction = useWatch({ control, name: 'planAction' }) ?? '';
   const windowMinutes = useWatch({ control, name: 'windowMinutes' }) ?? 0;
   const windowAction = useWatch({ control, name: 'windowAction' }) ?? '';
   const autoTagRef = useRef(true);
@@ -759,51 +757,6 @@ export default function InboundFormModal({
           rules={{ validate: rhfZodValidate(InboundDbFieldsSchema.shape.trafficResetDay) }}
         >
           <InputNumber min={1} max={31} />
-        </FormField>
-      )}
-
-      <FormField
-        name="planPeriod"
-        label={labelWithHint(t('pages.inbounds.plan.period'), t('pages.inbounds.plan.periodHelp'))}
-      >
-        <Select
-          allowClear
-          placeholder={t('pages.inbounds.plan.disabled')}
-          options={['daily', 'weekly', 'monthly'].map((r) => ({
-            value: r,
-            label: t(`pages.inbounds.periodicTrafficReset.${r}`),
-          }))}
-        />
-      </FormField>
-
-      {planPeriod !== '' && (
-        <FormField
-          name="planQuotaGB"
-          label={labelWithHint(t('pages.inbounds.plan.quota'), t('pages.inbounds.plan.quotaHelp'))}
-          rules={{ validate: rhfZodValidate(InboundDbFieldsSchema.shape.planQuotaGB) }}
-        >
-          <InputNumber min={0} step={0.1} style={{ width: '100%' }} />
-        </FormField>
-      )}
-
-      {planPeriod !== '' && (
-        <FormField name="planAction" label={t('pages.inbounds.plan.action')}>
-          <Select
-            options={[
-              { value: 'disable', label: t('pages.clients.bandwidthAction.disable') },
-              { value: 'throttle', label: t('pages.clients.bandwidthAction.throttle') },
-            ]}
-          />
-        </FormField>
-      )}
-
-      {planPeriod !== '' && planAction === 'throttle' && (
-        <FormField
-          name="planSpeed"
-          label={t('pages.inbounds.plan.speed')}
-          rules={{ validate: rhfZodValidate(InboundDbFieldsSchema.shape.planSpeed) }}
-        >
-          <InputNumber min={0} style={{ width: '100%' }} addonAfter="Kbps" />
         </FormField>
       )}
 

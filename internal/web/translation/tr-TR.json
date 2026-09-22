@@ -108,18 +108,11 @@
     "saveQr": "QR'ı kaydet",
     "historyUsage": "Geçmiş Kullanım",
     "tabQuota": "Kota",
-    "planQuota": "Plan Kota",
     "windowQuota": "Pencere Kota",
     "resets": "Sıfırlama",
     "resetsIn": "{hours} sa {minutes} dk",
     "resetsInDays": "{days} g {hours} sa",
     "throttledNow": "Şu anda kısıtlı",
-    "currentUsage": "Geçerli dönem kullanımı",
-    "period": {
-      "daily": "Günlük",
-      "weekly": "Haftalık",
-      "monthly": "Aylık"
-    },
     "maxSpeed": "Maksimum Hız"
   },
   "menu": {
@@ -726,20 +719,7 @@
         "peerNumberConfig": "Peer {n} Yapılandırması"
       },
       "sniffingDestOverride": "Hedef geçersiz kılma",
-      "advancedTitle": "Gelişmiş Ayarlar",
-      "plan": {
-        "period": "Trafik Planı Dönemi",
-        "periodHelp": "Bu gelen bağlantıdaki her istemci için dönemsel kota; her istemcinin ilk kullanımından itibaren sayılır. İstemciler kendi ayarıyla geçebilir.",
-        "disabled": "Kapalı",
-        "quota": "Dönem Başına Kota (GB)",
-        "quotaHelp": "Her istemcinin plan dönemi başına kullanabileceği trafik; toplam kota yine önce uygulanır.",
-        "action": "Aşımda",
-        "speed": "Kısıt Hızı (Kbps)",
-        "windowQuota": "Pencere Kotası (GB)",
-        "windowQuotaHelp": "Plan dönemine ek olarak kısa pencere kotası (ör. her 2 saatte 500MB); istemci başına, ilk kullanımdan itibaren.",
-        "windowMinutes": "Pencere Süresi (Dakika)",
-        "windowMinutesHelp": "Kota penceresinin uzunluğu, örn. 120 = iki saat; 0 = kapalı."
-      }
+      "advancedTitle": "Gelişmiş Ayarlar"
     },
     "clients": {
       "tabBasics": "Temel",

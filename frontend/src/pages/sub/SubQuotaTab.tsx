@@ -8,10 +8,6 @@ export interface QuotaInfo {
   windowUsed?: number;
   windowEnd?: number;
   windowMinutes?: number;
-  planPeriod?: string;
-  planQuota?: number;
-  periodUsed?: number;
-  planEnd?: number;
   throttledSince?: number;
   totalQuota?: number;
   used?: number;
@@ -67,7 +63,6 @@ export default function SubQuotaTab({ quota, totalLabel }: SubQuotaTabProps) {
     used: number;
     quotaB: number;
     end: number;
-    period?: string;
   }[] = [
     {
       key: 'total',
@@ -76,15 +71,6 @@ export default function SubQuotaTab({ quota, totalLabel }: SubQuotaTabProps) {
       used,
       quotaB: totalQuota,
       end: 0,
-    },
-    {
-      key: 'plan',
-      label: t('subscription.planQuota'),
-      present: !!quota.planPeriod && (Number(quota.planQuota) || 0) > 0,
-      used: Number(quota.periodUsed) || 0,
-      quotaB: Number(quota.planQuota) || 0,
-      end: Number(quota.planEnd) || 0,
-      period: quota.planPeriod,
     },
     {
       key: 'window',
@@ -112,14 +98,7 @@ export default function SubQuotaTab({ quota, totalLabel }: SubQuotaTabProps) {
                 className="sub-label"
                 style={{ display: 'flex', justifyContent: 'space-between' }}
               >
-                <span>
-                  {row.label}
-                  {row.period && (
-                    <Tag color="purple" style={{ marginInlineStart: 8 }}>
-                      {t(`subscription.period.${row.period}`)}
-                    </Tag>
-                  )}
-                </span>
+                <span>{row.label}</span>
                 <span>
                   {SizeFormatter.sizeFormat(row.used)}
                   {' / '}

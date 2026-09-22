@@ -108,18 +108,11 @@
     "saveQr": "QR を保存",
     "historyUsage": "履歴使用量",
     "tabQuota": "容量",
-    "planQuota": "プラン容量",
     "windowQuota": "ウィンドウ容量",
     "resets": "リセット",
     "resetsIn": "{hours}時間{minutes}分",
     "resetsInDays": "{days}日{hours}時間",
     "throttledNow": "現在速度制限中",
-    "currentUsage": "現在期間の使用量",
-    "period": {
-      "daily": "毎日",
-      "weekly": "毎週",
-      "monthly": "毎月"
-    },
     "maxSpeed": "最大速度"
   },
   "menu": {
@@ -726,20 +719,7 @@
         "peerNumberConfig": "Peer {n} 設定"
       },
       "sniffingDestOverride": "宛先のオーバーライド",
-      "advancedTitle": "詳細設定",
-      "plan": {
-        "period": "トラフィックプラン期間",
-        "periodHelp": "このインバウンドの全クライアントに適用される期間ごとの quota。各クライアントの初回使用から起算。クライアント側の設定で上書きできます。",
-        "disabled": "無効",
-        "quota": "期間ごとの容量 (GB)",
-        "quotaHelp": "各クライアントがプラン期間ごとに使えるトラフィック。合計容量が先に適用されます。",
-        "action": "超過時",
-        "speed": "制限速度 (Kbps)",
-        "windowQuota": "ウィンドウ容量 (GB)",
-        "windowQuotaHelp": "プラン期間に加えて短いウィンドウの容量（例：2時間ごとに500MB）。クライアントごとに初回使用から起算。",
-        "windowMinutes": "ウィンドウ長（分）",
-        "windowMinutesHelp": "ウィンドウ容量の期間。例：120 = 2時間。0 = 無効。"
-      }
+      "advancedTitle": "詳細設定"
     },
     "clients": {
       "tabBasics": "基本",

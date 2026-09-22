@@ -108,18 +108,11 @@
     "saveQr": "儲存 QR 碼",
     "historyUsage": "歷史用量",
     "tabQuota": "額度",
-    "planQuota": "計畫配額",
     "windowQuota": "視窗配額",
     "resets": "重置",
     "resetsIn": "{hours} 小時 {minutes} 分",
     "resetsInDays": "{days} 天 {hours} 小時",
     "throttledNow": "目前已降速",
-    "currentUsage": "目前週期用量",
-    "period": {
-      "daily": "每日",
-      "weekly": "每週",
-      "monthly": "每月"
-    },
     "maxSpeed": "最大速度"
   },
   "menu": {
@@ -726,20 +719,7 @@
         "peerNumberConfig": "Peer {n} 設定"
       },
       "sniffingDestOverride": "目標覆寫",
-      "advancedTitle": "進階設定",
-      "plan": {
-        "period": "流量計畫週期",
-        "periodHelp": "對此入站下每個用戶端生效的週期額度，從各用戶端首次使用開始計算。用戶端可用自己的設定覆蓋。",
-        "disabled": "不啟用",
-        "quota": "每週期額度 (GB)",
-        "quotaHelp": "每個用戶端每週期可用的流量；總額度仍然優先生效。",
-        "action": "超出後動作",
-        "speed": "降速限速 (Kbps)",
-        "windowQuota": "視窗配額 (GB)",
-        "windowQuotaHelp": "短視窗配額（如每 2 小時 500MB），疊加在計畫週期之上；按用戶端獨立計算，從首次使用開始。",
-        "windowMinutes": "視窗時長（分鐘）",
-        "windowMinutesHelp": "配額視窗的長度，例如 120 表示兩小時；0 = 不啟用視窗。"
-      }
+      "advancedTitle": "進階設定"
     },
     "clients": {
       "tabBasics": "基本",

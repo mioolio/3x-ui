@@ -138,10 +138,6 @@ type planRow struct {
 	DepletionGraceDays int
 	DepletionPeriod    string
 	DepletionPeriodGB  int64
-	PlanPeriod         string
-	PlanQuotaGB        int64
-	PlanAction         string
-	PlanSpeed          int
 	Up                 int64
 	Down               int64
 	Total              int64
@@ -162,8 +158,6 @@ type throttleAcc struct {
 	throttled          bool
 	needsThrottledStamp bool
 	since              int64
-	// inbound-level plan: strictest non-empty across the client's inbounds
-	plan effectivePlan
 	// period fence state
 	state fenceState
 }
@@ -272,10 +266,6 @@ func (s *InboundService) enforceDepletionPeriods(tx *gorm.DB, mutationBatch *tra
 			COALESCE(clients.depletion_grace_days, 0) AS depletion_grace_days,
 			COALESCE(clients.depletion_period, '') AS depletion_period,
 			COALESCE(clients.depletion_period_gb, 0) AS depletion_period_gb,
-			COALESCE(inbounds.plan_period, '') AS plan_period,
-			COALESCE(inbounds.plan_quota_gb, 0) AS plan_quota_gb,
-			COALESCE(inbounds.plan_action, '') AS plan_action,
-			COALESCE(inbounds.plan_speed, 0) AS plan_speed,
 			client_traffics.up AS up,
 			client_traffics.down AS down,
 			COALESCE(client_traffics.total, 0) AS total,
@@ -288,7 +278,7 @@ func (s *InboundService) enforceDepletionPeriods(tx *gorm.DB, mutationBatch *tra
 		Joins("JOIN client_inbounds ON client_inbounds.client_id = clients.id").
 		Joins("JOIN inbounds ON inbounds.id = client_inbounds.inbound_id AND inbounds.node_id IS NULL").
 		Joins("JOIN client_traffics ON client_traffics.email = clients.email").
-		Where("clients.depletion_action = ? OR COALESCE(clients.depletion_period, '') <> '' OR COALESCE(inbounds.plan_period, '') <> ''", "throttle").
+		Where("clients.depletion_action = ? OR COALESCE(clients.depletion_period, '') <> ''", "throttle").
 		Find(&rows).Error
 	if err != nil {
 		return err
@@ -316,14 +306,6 @@ func (s *InboundService) enforceDepletionPeriods(tx *gorm.DB, mutationBatch *tra
 			a.needsThrottledStamp = a.throttled && a.since == 0
 			accs[r.Email] = a
 		}
-		if mins, ok := periodMinutes[r.PlanPeriod]; ok && r.PlanQuotaGB > 0 {
-			plan := effectivePlan{quotaGB: r.PlanQuotaGB, minutes: mins, action: r.PlanAction, speed: r.PlanSpeed}
-			if a.plan.minutes > 0 {
-				a.plan = strictestPlan(a.plan, plan)
-			} else {
-				a.plan = plan
-			}
-		}
 	}
 
 	var violated, slid []string
@@ -336,11 +318,10 @@ func (s *InboundService) enforceDepletionPeriods(tx *gorm.DB, mutationBatch *tra
 			}
 		}
 
-		// Effective periodic cap: while depletion-throttled the client's own
-		// period cap wins over the inbound's always-on plan. Its action is
-		// always disable — the cap exists to stop a throttled client from
-		// running at the reduced rate forever.
-		plan := a.plan
+		// Effective periodic cap: the client's depletion-throttle traffic
+		// cap. Its action is always disable — the cap exists to stop a
+		// throttled client from running at the reduced rate forever.
+		plan := effectivePlan{}
 		if a.throttled {
 			if mins, ok := periodMinutes[a.depletionPeriod]; ok && a.depletionPeriodGB > 0 {
 				plan = effectivePlan{quotaGB: a.depletionPeriodGB, minutes: mins, action: "disable"}

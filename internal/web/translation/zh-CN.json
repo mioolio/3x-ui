@@ -108,18 +108,11 @@
     "saveQr": "保存二维码",
     "historyUsage": "历史用量",
     "tabQuota": "额度",
-    "planQuota": "计划配额",
     "windowQuota": "窗口配额",
     "resets": "重置",
     "resetsIn": "{hours} 小时 {minutes} 分",
     "resetsInDays": "{days} 天 {hours} 小时",
     "throttledNow": "当前已降速",
-    "currentUsage": "当前周期用量",
-    "period": {
-      "daily": "每日",
-      "weekly": "每周",
-      "monthly": "每月"
-    },
     "maxSpeed": "最大速度"
   },
   "menu": {
@@ -726,20 +719,7 @@
         "peerNumberConfig": "Peer {n} 配置"
       },
       "sniffingDestOverride": "目标覆盖",
-      "advancedTitle": "高级设置",
-      "plan": {
-        "period": "流量计划周期",
-        "periodHelp": "对该入站下每个客户端生效的周期额度，从各客户端首次使用开始计算。客户端可用自己的设置覆盖。",
-        "disabled": "不启用",
-        "quota": "每周期额度 (GB)",
-        "quotaHelp": "每个客户端每周期可用的流量；总额度仍然优先生效。",
-        "action": "超出后动作",
-        "speed": "降速限速 (Kbps)",
-        "windowQuota": "窗口配额 (GB)",
-        "windowQuotaHelp": "短窗口配额（如每 2 小时 500MB），叠加在计划周期之上；按客户端独立计算，从首次使用开始。",
-        "windowMinutes": "窗口时长（分钟）",
-        "windowMinutesHelp": "配额窗口的长度，例如 120 表示两小时；0 = 不启用窗口。"
-      }
+      "advancedTitle": "高级设置"
     },
     "clients": {
       "tabBasics": "基本",

@@ -108,18 +108,11 @@
     "saveQr": "Save QR",
     "historyUsage": "History Usage",
     "tabQuota": "Quota",
-    "planQuota": "Plan Quota",
     "windowQuota": "Window Quota",
     "resets": "Resets",
     "resetsIn": "{hours}h {minutes}m",
     "resetsInDays": "{days}d {hours}h",
     "throttledNow": "Currently throttled",
-    "currentUsage": "Current period usage",
-    "period": {
-      "daily": "Daily",
-      "weekly": "Weekly",
-      "monthly": "Monthly"
-    },
     "maxSpeed": "Max Speed"
   },
   "menu": {
@@ -726,20 +719,7 @@
         "peerNumber": "Peer {n}",
         "peerNumberConfig": "Peer {n} config"
       },
-      "sniffingDestOverride": "Destination override",
-      "plan": {
-        "period": "Traffic Plan Period",
-        "periodHelp": "Per-client periodic quota for everyone on this inbound, counted from each client's first use. Clients can override it with their own setting.",
-        "disabled": "Disabled",
-        "quota": "Quota per Period (GB)",
-        "quotaHelp": "Traffic each client may use per plan period; the total quota still applies first.",
-        "action": "When Exceeded",
-        "speed": "Throttle Speed (Kbps)",
-        "windowQuota": "Window Quota (GB)",
-        "windowQuotaHelp": "Short-window quota (e.g. 500MB every 2 hours) on top of the plan period; per client, counted from first use.",
-        "windowMinutes": "Window Length (Minutes)",
-        "windowMinutesHelp": "Length of the quota window, e.g. 120 for two hours; 0 disables the window."
-      }
+      "sniffingDestOverride": "Destination override"
     },
     "clients": {
       "tabBasics": "Basics",

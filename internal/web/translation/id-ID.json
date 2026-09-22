@@ -108,18 +108,11 @@
     "saveQr": "Simpan QR",
     "historyUsage": "Penggunaan Histori",
     "tabQuota": "Kuota",
-    "planQuota": "Kuota Rencana",
     "windowQuota": "Kuota Jendela",
     "resets": "Reset",
     "resetsIn": "{hours} jam {minutes} mnt",
     "resetsInDays": "{days} hr {hours} jam",
     "throttledNow": "Sedang dibatasi",
-    "currentUsage": "Penggunaan periode saat ini",
-    "period": {
-      "daily": "Harian",
-      "weekly": "Mingguan",
-      "monthly": "Bulanan"
-    },
     "maxSpeed": "Kecepatan Maks"
   },
   "menu": {
@@ -726,20 +719,7 @@
         "peerNumberConfig": "Konfig Peer {n}"
       },
       "sniffingDestOverride": "Penggantian tujuan",
-      "advancedTitle": "Pengaturan Lanjutan",
-      "plan": {
-        "period": "Periode Rencana Trafik",
-        "periodHelp": "Kuota berkala per klien untuk semua klien pada inbound ini, dihitung dari penggunaan pertama masing-masing. Klien dapat menimpanya dengan pengaturannya sendiri.",
-        "disabled": "Nonaktif",
-        "quota": "Kuota per Periode (GB)",
-        "quotaHelp": "Trafik yang boleh dipakai setiap klien per periode rencana; kuota total tetap berlaku lebih dulu.",
-        "action": "Saat Terlampaui",
-        "speed": "Kecepatan Pembatasan (Kbps)",
-        "windowQuota": "Kuota Jendela (GB)",
-        "windowQuotaHelp": "Kuota jendela pendek (mis. 500MB setiap 2 jam) di luar periode rencana; per klien, dari penggunaan pertama.",
-        "windowMinutes": "Durasi Jendela (Menit)",
-        "windowMinutesHelp": "Panjang jendela kuota, mis. 120 = dua jam; 0 = nonaktif."
-      }
+      "advancedTitle": "Pengaturan Lanjutan"
     },
     "clients": {
       "tabBasics": "Dasar",

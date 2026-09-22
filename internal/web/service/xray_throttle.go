@@ -53,12 +53,6 @@ type throttleRow struct {
 	IWindowSpeed   int
 	WindowUsed     int64
 	WindowStarted  int64
-	PeriodUsed     int64
-	PeriodStarted  int64
-	PlanQuotaGB    int64
-	PlanMinutes    int
-	PlanAction     string
-	PlanSpeed      int
 }
 
 // ThrottleLimitState is what a client's rate depends on right now. It is the
@@ -71,9 +65,6 @@ type ThrottleLimitState struct {
 	WindowViolated     bool
 	WindowAction       string
 	WindowSpeed        int
-	PeriodViolated     bool
-	PeriodAction       string
-	PeriodSpeed        int
 	WindowUsed         int64
 	WindowQuota        int64
 	WindowStarted      int64
@@ -109,10 +100,6 @@ func (t ThrottleLimitState) EffectiveLimit() (throttle.Limit, bool) {
 	if t.WindowThrottle() {
 		down = strictest(down, t.WindowSpeed)
 		up = strictest(up, t.WindowSpeed)
-	}
-	if t.PeriodViolated && t.PeriodAction == "throttle" {
-		down = strictest(down, t.PeriodSpeed)
-		up = strictest(up, t.PeriodSpeed)
 	}
 	if down <= 0 && up <= 0 {
 		return throttle.Limit{}, false
@@ -155,17 +142,10 @@ func throttleStateFrom(r throttleRow, now int64) ThrottleLimitState {
 	}
 	windowViolated := r.WindowQuotaGB > 0 && r.WindowMinutes > 0 &&
 		r.WindowStarted > 0 && now < windowEnd && r.WindowUsed > r.WindowQuotaGB
-	periodEnd := int64(0)
-	if r.PeriodStarted > 0 && r.PlanMinutes > 0 {
-		periodEnd = r.PeriodStarted + int64(r.PlanMinutes)*60000
-	}
-	periodViolated := r.PlanQuotaGB > 0 && r.PeriodStarted > 0 &&
-		now < periodEnd && r.PeriodUsed > r.PlanQuotaGB
 	return ThrottleLimitState{
 		SpeedUp: r.SpeedLimitUp, SpeedDown: r.SpeedLimitDown,
 		Depleted: depleted, DepletionAction: r.DepletionAction, DepletionSpeed: r.DepletionSpeed,
 		WindowViolated: windowViolated, WindowAction: r.WindowAction, WindowSpeed: r.WindowSpeed,
-		PeriodViolated: periodViolated, PeriodAction: r.PlanAction, PeriodSpeed: r.PlanSpeed,
 		WindowUsed: r.WindowUsed, WindowQuota: r.WindowQuotaGB,
 		WindowStarted: r.WindowStarted, WindowMinutes: r.WindowMinutes,
 	}
@@ -221,10 +201,8 @@ func (s *InboundService) ThrottleLimits() map[string]throttle.Limit {
 		Joins("JOIN client_traffics ON client_traffics.email = clients.email").
 		Where(`clients.speed_limit_down > 0 OR clients.speed_limit_up > 0
 			OR clients.depletion_action = ?
-			OR COALESCE(clients.depletion_period, '') <> ''
 			OR COALESCE(clients.window_minutes, 0) > 0
-			OR COALESCE(inbounds.window_minutes, 0) > 0
-			OR COALESCE(inbounds.plan_period, '') <> ''`, "throttle").
+			OR COALESCE(inbounds.window_minutes, 0) > 0`, "throttle").
 		Find(&rows).Error
 	if err != nil {
 		logger.Warning("throttle: query limits failed:", err)
@@ -235,7 +213,6 @@ func (s *InboundService) ThrottleLimits() map[string]throttle.Limit {
 	type merged struct {
 		row    throttleRow
 		window effectivePlan
-		plan   effectivePlan
 	}
 	byEmail := make(map[string]*merged, len(rows))
 	for _, r := range rows {
@@ -257,12 +234,6 @@ func (s *InboundService) ThrottleLimits() map[string]throttle.Limit {
 				m.window = ib
 			}
 		}
-		// Strictest plan across inbounds.
-		if pl := (effectivePlan{quotaGB: r.PlanQuotaGB, minutes: r.PlanMinutes, action: r.PlanAction, speed: r.PlanSpeed}); pl.minutes > 0 {
-			if m.plan.minutes == 0 || pl.quotaGB < m.plan.quotaGB {
-				m.plan = pl
-			}
-		}
 	}
 	for email, m := range byEmail {
 		row := m.row
@@ -272,20 +243,6 @@ func (s *InboundService) ThrottleLimits() map[string]throttle.Limit {
 		if row.WindowMinutes == 0 && m.window.minutes > 0 {
 			row.WindowQuotaGB, row.WindowMinutes = m.window.quotaGB, m.window.minutes
 			row.WindowAction, row.WindowSpeed = m.window.action, m.window.speed
-		}
-		// While depletion-throttled, the client's own periodic cap replaces
-		// the inbound plan for speed purposes (its disable is pipeline-side,
-		// driven by period_disabled in the traffic job).
-		depleted := (row.Total > 0 && row.Up+row.Down >= row.Total) ||
-			(row.ExpiryTime > 0 && row.ExpiryTime <= now)
-		if row.DepletionAction == "throttle" && depleted {
-			if mins, ok := periodMinutes[row.DepletionPeriod]; ok && row.DepletionPeriodGB > 0 {
-				row.PlanQuotaGB, row.PlanMinutes = row.DepletionPeriodGB, mins
-				row.PlanAction, row.PlanSpeed = "throttle", row.DepletionSpeed
-			}
-		} else if m.plan.minutes > 0 {
-			row.PlanQuotaGB, row.PlanMinutes = m.plan.quotaGB, m.plan.minutes
-			row.PlanAction, row.PlanSpeed = m.plan.action, m.plan.speed
 		}
 		if lim, ok := throttleStateFrom(row, now).EffectiveLimit(); ok {
 			limits[email] = lim

@@ -108,18 +108,11 @@
     "saveQr": "Lưu QR",
     "historyUsage": "Lượng dùng lịch sử",
     "tabQuota": "Hạn mức",
-    "planQuota": "Hạn mức kế hoạch",
     "windowQuota": "Hạn mức cửa sổ",
     "resets": "Đặt lại",
     "resetsIn": "{hours} giờ {minutes} phút",
     "resetsInDays": "{days} ngày {hours} giờ",
     "throttledNow": "Đang bị giới hạn",
-    "currentUsage": "Lượng dùng kỳ hiện tại",
-    "period": {
-      "daily": "Hàng ngày",
-      "weekly": "Hàng tuần",
-      "monthly": "Hàng tháng"
-    },
     "maxSpeed": "Tốc độ tối đa"
   },
   "menu": {
@@ -726,20 +719,7 @@
         "peerNumberConfig": "Cấu hình Peer {n}"
       },
       "sniffingDestOverride": "Ghi đè đích",
-      "advancedTitle": "Cài đặt nâng cao",
-      "plan": {
-        "period": "Chu kỳ kế hoạch lưu lượng",
-        "periodHelp": "Hạn mức theo kỳ cho từng client trên inbound này, tính từ lần sử dụng đầu tiên của từng client. Client có thể ghi đè bằng cài đặt riêng.",
-        "disabled": "Tắt",
-        "quota": "Hạn mức mỗi kỳ (GB)",
-        "quotaHelp": "Lưu lượng mỗi client dùng được mỗi kỳ kế hoạch; hạn mức tổng vẫn ưu tiên áp dụng trước.",
-        "action": "Khi vượt",
-        "speed": "Tốc độ giới hạn (Kbps)",
-        "windowQuota": "Hạn mức cửa sổ (GB)",
-        "windowQuotaHelp": "Cửa sổ hạn mức ngắn (vd. 500MB mỗi 2 giờ) ngoài kỳ kế hoạch; theo từng client, từ lần dùng đầu.",
-        "windowMinutes": "Độ dài cửa sổ (phút)",
-        "windowMinutesHelp": "Độ dài của cửa sổ hạn mức, vd. 120 = hai giờ; 0 = tắt."
-      }
+      "advancedTitle": "Cài đặt nâng cao"
     },
     "clients": {
       "tabBasics": "Cơ bản",

@@ -108,18 +108,11 @@
     "saveQr": "Guardar QR",
     "historyUsage": "Uso histórico",
     "tabQuota": "Cuota",
-    "planQuota": "Cuota del plan",
     "windowQuota": "Cuota de ventana",
     "resets": "Se reinicia",
     "resetsIn": "{hours} h {minutes} min",
     "resetsInDays": "{days} d {hours} h",
     "throttledNow": "Limitado actualmente",
-    "currentUsage": "Uso del periodo actual",
-    "period": {
-      "daily": "Diario",
-      "weekly": "Semanal",
-      "monthly": "Mensual"
-    },
     "maxSpeed": "Velocidad máxima"
   },
   "menu": {
@@ -726,20 +719,7 @@
         "peerNumberConfig": "Config Peer {n}"
       },
       "sniffingDestOverride": "Anulación de destino",
-      "advancedTitle": "Configuración avanzada",
-      "plan": {
-        "period": "Periodo del plan de tráfico",
-        "periodHelp": "Cuota periódica por cliente para todos los de este inbound, contada desde el primer uso de cada cliente. El cliente puede anularla con su propia configuración.",
-        "disabled": "Desactivado",
-        "quota": "Cuota por periodo (GB)",
-        "quotaHelp": "Tráfico que cada cliente puede usar por periodo del plan; la cuota total sigue aplicándose primero.",
-        "action": "Al superarse",
-        "speed": "Velocidad de limitación (Kbps)",
-        "windowQuota": "Cuota de ventana (GB)",
-        "windowQuotaHelp": "Cuota de ventana corta (p. ej. 500MB cada 2 horas) además del periodo del plan; por cliente, desde el primer uso.",
-        "windowMinutes": "Duración de la ventana (minutos)",
-        "windowMinutesHelp": "Duración de la ventana de cuota, p. ej. 120 = dos horas; 0 = desactivada."
-      }
+      "advancedTitle": "Configuración avanzada"
     },
     "clients": {
       "tabBasics": "Básico",

@@ -108,18 +108,11 @@
     "saveQr": "ذخیره QR",
     "historyUsage": "مصرف تاریخی",
     "tabQuota": "سهمیه",
-    "planQuota": "سهمیه برنامه",
     "windowQuota": "سهمیه پنجره",
     "resets": "بازنشانی",
     "resetsIn": "{hours} ساعت {minutes} دقیقه",
     "resetsInDays": "{days} روز {hours} ساعت",
     "throttledNow": "در حال حاضر کاهش سرعت",
-    "currentUsage": "مصرف دوره جاری",
-    "period": {
-      "daily": "روزانه",
-      "weekly": "هفتگی",
-      "monthly": "ماهانه"
-    },
     "maxSpeed": "حداکثر سرعت"
   },
   "menu": {
@@ -726,20 +719,7 @@
         "peerNumberConfig": "پیکربندی Peer {n}"
       },
       "sniffingDestOverride": "بازنویسی مقصد",
-      "advancedTitle": "تنظیمات پیشرفته",
-      "plan": {
-        "period": "دوره برنامه ترافیک",
-        "periodHelp": "سهمیه دوره‌ای برای هر کاربر در این inbound، از اولین استفاده هر کاربر محاسبه می‌شود. کاربر می‌تواند با تنظیم خودش آن را بازنویسی کند.",
-        "disabled": "غیرفعال",
-        "quota": "سهمیه هر دوره (GB)",
-        "quotaHelp": "ترافیک مجاز هر کاربر در هر دوره برنامه؛ سهمیه کل همچنان ابتدا اعمال می‌شود.",
-        "action": "پس از عبور",
-        "speed": "سرعت کاهش (Kbps)",
-        "windowQuota": "سهمیه پنجره (GB)",
-        "windowQuotaHelp": "سهمیه پنجره کوتاه (مثلاً 500MB هر 2 ساعت) علاوه بر دوره برنامه؛ برای هر کاربر، از اولین استفاده.",
-        "windowMinutes": "طول پنجره (دقیقه)",
-        "windowMinutesHelp": "طول پنجره سهمیه، مثلاً 120 برای دو ساعت؛ 0 = غیرفعال."
-      }
+      "advancedTitle": "تنظیمات پیشرفته"
     },
     "clients": {
       "tabBasics": "پایه",
