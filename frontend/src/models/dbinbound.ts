@@ -32,6 +32,10 @@ export type DBInboundInit = Partial<{
   trafficReset: string;
   trafficResetDay: number;
   lastTrafficResetTime: number;
+  windowQuotaGB: number;
+  windowMinutes: number;
+  windowAction: string;
+  windowSpeed: number;
   listen: string;
   port: number;
   protocol: string;
@@ -80,6 +84,10 @@ export class DBInbound {
   trafficReset: string;
   trafficResetDay: number;
   lastTrafficResetTime: number;
+  windowQuotaGB: number;
+  windowMinutes: number;
+  windowAction: string;
+  windowSpeed: number;
 
   listen: string;
   port: number;
@@ -111,6 +119,10 @@ export class DBInbound {
     this.trafficReset = 'never';
     this.trafficResetDay = 1;
     this.lastTrafficResetTime = 0;
+    this.windowQuotaGB = 0;
+    this.windowMinutes = 0;
+    this.windowAction = '';
+    this.windowSpeed = 0;
 
     this.listen = '';
     this.port = 0;

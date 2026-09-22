@@ -763,8 +763,8 @@ export default function InboundFormModal({
       <FormField
         name="windowQuotaGB"
         label={labelWithHint(
-          t('pages.clients.windowQuota'),
-          t('pages.clients.windowQuotaDesc'),
+          t('pages.clients.windowQuotaGB'),
+          t('pages.clients.windowQuotaGBDesc'),
         )}
       >
         <InputNumber min={0} step={0.1} style={{ width: '100%' }} />
