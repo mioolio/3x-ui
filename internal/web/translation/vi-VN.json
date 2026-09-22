@@ -120,7 +120,7 @@
       "weekly": "Hàng tuần",
       "monthly": "Hàng tháng"
     },
-    "speedLimit": "Giới hạn tốc độ"
+    "maxSpeed": "Tốc độ tối đa"
   },
   "menu": {
     "theme": "Chủ đề",

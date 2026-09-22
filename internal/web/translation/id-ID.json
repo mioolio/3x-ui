@@ -120,7 +120,7 @@
       "weekly": "Mingguan",
       "monthly": "Bulanan"
     },
-    "speedLimit": "Batas Kecepatan"
+    "maxSpeed": "Kecepatan Maks"
   },
   "menu": {
     "theme": "Tema",

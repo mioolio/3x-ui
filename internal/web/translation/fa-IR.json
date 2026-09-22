@@ -120,7 +120,7 @@
       "weekly": "هفتگی",
       "monthly": "ماهانه"
     },
-    "speedLimit": "محدودیت سرعت"
+    "maxSpeed": "حداکثر سرعت"
   },
   "menu": {
     "theme": "تم",

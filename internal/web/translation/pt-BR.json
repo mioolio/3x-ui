@@ -120,7 +120,7 @@
       "weekly": "Semanal",
       "monthly": "Mensal"
     },
-    "speedLimit": "Limite de velocidade"
+    "maxSpeed": "Velocidade máxima"
   },
   "menu": {
     "theme": "Tema",

@@ -120,7 +120,7 @@
       "weekly": "أسبوعي",
       "monthly": "شهري"
     },
-    "speedLimit": "حد السرعة"
+    "maxSpeed": "السرعة القصوى"
   },
   "menu": {
     "theme": "الثيم",

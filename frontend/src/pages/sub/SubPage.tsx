@@ -138,11 +138,7 @@ export default function SubPage() {
       icon: <PieChartOutlined />,
       label: t('subscription.tabQuota'),
       children: (
-        <SubQuotaTab
-          quota={(subData.quota as QuotaInfo) || {}}
-          usedLabel={subData.used || '0'}
-          totalLabel={subData.total || '∞'}
-        />
+        <SubQuotaTab quota={(subData.quota as QuotaInfo) || {}} totalLabel={subData.total || '∞'} />
       ),
     });
     if (links.length > 0) {

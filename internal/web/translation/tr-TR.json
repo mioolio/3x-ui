@@ -120,7 +120,7 @@
       "weekly": "Haftalık",
       "monthly": "Aylık"
     },
-    "speedLimit": "Hız Sınırı"
+    "maxSpeed": "Maksimum Hız"
   },
   "menu": {
     "theme": "Tema",

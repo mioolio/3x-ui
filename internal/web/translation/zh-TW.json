@@ -120,7 +120,7 @@
       "weekly": "每週",
       "monthly": "每月"
     },
-    "speedLimit": "速度限制"
+    "maxSpeed": "最大速度"
   },
   "menu": {
     "theme": "主題",

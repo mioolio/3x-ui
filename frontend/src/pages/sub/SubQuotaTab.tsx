@@ -34,7 +34,6 @@ function formatSpeed(kbps?: number): string {
 
 interface SubQuotaTabProps {
   quota: QuotaInfo;
-  usedLabel: string;
   totalLabel: string;
 }
 
@@ -55,11 +54,10 @@ function resetLabel(endSec: number, t: (k: string, o?: Record<string, unknown>) 
   return t('subscription.resetsIn', { hours: h, minutes: m });
 }
 
-export default function SubQuotaTab({ quota, usedLabel, totalLabel }: SubQuotaTabProps) {
+export default function SubQuotaTab({ quota, totalLabel }: SubQuotaTabProps) {
   const { t } = useTranslation();
   const totalQuota = Number(quota.totalQuota) || 0;
   const used = Number(quota.used) || 0;
-  const historyUsed = Number(quota.historyUsed) || 0;
   const throttled = Number(quota.throttledSince) > 0;
 
   const rows: {
@@ -141,20 +139,14 @@ export default function SubQuotaTab({ quota, usedLabel, totalLabel }: SubQuotaTa
             </div>
           </div>
         ))}
-      <div className="sub-row-info" style={{ width: '100%' }}>
-        <div className="sub-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span>{t('subscription.speedLimit')}</span>
-          <span>
-            ↓ {formatSpeed(quota.speedDown)} / ↑ {formatSpeed(quota.speedUp)}
-          </span>
-        </div>
-        <div className="sub-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span>{t('subscription.historyUsage')}</span>
-          <span>{SizeFormatter.sizeFormat(historyUsed)}</span>
-        </div>
-        <div className="sub-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span>{t('subscription.currentUsage')}</span>
-          <span>{usedLabel}</span>
+      <div className="sub-row">
+        <div className="sub-row-info" style={{ width: '100%' }}>
+          <div className="sub-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>{t('subscription.maxSpeed')}</span>
+            <span>
+              ↓ {formatSpeed(quota.speedDown)} / ↑ {formatSpeed(quota.speedUp)}
+            </span>
+          </div>
         </div>
       </div>
     </div>
