@@ -763,8 +763,8 @@ export default function InboundFormModal({
       <FormField
         name="windowQuotaGB"
         label={labelWithHint(
-          t('pages.inbounds.plan.windowQuota'),
-          t('pages.inbounds.plan.windowQuotaHelp'),
+          t('pages.clients.windowQuota'),
+          t('pages.clients.windowQuotaDesc'),
         )}
       >
         <InputNumber min={0} step={0.1} style={{ width: '100%' }} />
@@ -773,15 +773,15 @@ export default function InboundFormModal({
       <FormField
         name="windowMinutes"
         label={labelWithHint(
-          t('pages.inbounds.plan.windowMinutes'),
-          t('pages.inbounds.plan.windowMinutesHelp'),
+          t('pages.clients.windowMinutes'),
+          t('pages.clients.windowMinutesDesc'),
         )}
       >
         <InputNumber min={0} style={{ width: '100%' }} addonAfter="min" />
       </FormField>
 
       {windowMinutes > 0 && (
-        <FormField name="windowAction" label={t('pages.inbounds.plan.action')}>
+        <FormField name="windowAction" label={t('pages.clients.windowAction')}>
           <Select
             options={[
               { value: 'disable', label: t('pages.clients.bandwidthAction.disable') },
@@ -794,7 +794,7 @@ export default function InboundFormModal({
       {windowMinutes > 0 && windowAction === 'throttle' && (
         <FormField
           name="windowSpeed"
-          label={t('pages.inbounds.plan.speed')}
+          label={t('pages.clients.windowSpeed')}
           rules={{ validate: rhfZodValidate(InboundDbFieldsSchema.shape.windowSpeed) }}
         >
           <InputNumber min={0} style={{ width: '100%' }} addonAfter="Kbps" />
