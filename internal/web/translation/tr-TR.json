@@ -119,7 +119,8 @@
       "daily": "Günlük",
       "weekly": "Haftalık",
       "monthly": "Aylık"
-    }
+    },
+    "speedLimit": "Hız Sınırı"
   },
   "menu": {
     "theme": "Tema",

@@ -119,7 +119,8 @@
       "daily": "毎日",
       "weekly": "毎週",
       "monthly": "毎月"
-    }
+    },
+    "speedLimit": "速度制限"
   },
   "menu": {
     "theme": "テーマ",

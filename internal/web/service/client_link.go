@@ -74,6 +74,19 @@ func applyClientRecordMerge(row *model.ClientRecord, incoming *model.ClientRecor
 	if incoming.TrafficResetDay > 0 {
 		row.TrafficResetDay = incoming.TrafficResetDay
 	}
+	// Bandwidth controls are edited as a whole block: zero is a legitimate
+	// value that clears a setting, so they copy unconditionally.
+	row.SpeedLimitUp = incoming.SpeedLimitUp
+	row.SpeedLimitDown = incoming.SpeedLimitDown
+	row.DepletionAction = incoming.DepletionAction
+	row.DepletionSpeed = incoming.DepletionSpeed
+	row.DepletionGraceDays = incoming.DepletionGraceDays
+	row.DepletionPeriod = incoming.DepletionPeriod
+	row.DepletionPeriodGB = incoming.DepletionPeriodGB
+	row.WindowQuotaGB = incoming.WindowQuotaGB
+	row.WindowMinutes = incoming.WindowMinutes
+	row.WindowAction = incoming.WindowAction
+	row.WindowSpeed = incoming.WindowSpeed
 	if incoming.CreatedAt > 0 && (row.CreatedAt == 0 || incoming.CreatedAt < row.CreatedAt) {
 		row.CreatedAt = incoming.CreatedAt
 	}

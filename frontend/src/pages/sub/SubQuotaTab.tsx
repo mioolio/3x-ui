@@ -17,6 +17,19 @@ export interface QuotaInfo {
   used?: number;
   historyUsed?: number;
   expiry?: number;
+  speedUp?: number;
+  speedDown?: number;
+}
+
+// Rates are stored in Kbps; display Mbps once the value is a whole multiple.
+function formatSpeed(kbps?: number): string {
+  const v = Number(kbps) || 0;
+  if (v <= 0) return '∞';
+  if (v >= 1000) {
+    const mbps = v / 1000;
+    return `${Number.isInteger(mbps) ? mbps : mbps.toFixed(1)} Mbps`;
+  }
+  return `${v} Kbps`;
 }
 
 interface SubQuotaTabProps {
@@ -129,6 +142,12 @@ export default function SubQuotaTab({ quota, usedLabel, totalLabel }: SubQuotaTa
           </div>
         ))}
       <div className="sub-row-info" style={{ width: '100%' }}>
+        <div className="sub-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span>{t('subscription.speedLimit')}</span>
+          <span>
+            ↓ {formatSpeed(quota.speedDown)} / ↑ {formatSpeed(quota.speedUp)}
+          </span>
+        </div>
         <div className="sub-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
           <span>{t('subscription.historyUsage')}</span>
           <span>{SizeFormatter.sizeFormat(historyUsed)}</span>

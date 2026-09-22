@@ -791,6 +791,17 @@ func (s *ClientService) Update(inboundSvc *InboundService, id int, updated model
 				"reset_max":         merged.ResetMax,
 				"traffic_reset":     merged.TrafficReset,
 				"traffic_reset_day": merged.TrafficResetDay,
+				"speed_limit_up":    merged.SpeedLimitUp,
+				"speed_limit_down":  merged.SpeedLimitDown,
+				"depletion_action":  merged.DepletionAction,
+				"depletion_speed":   merged.DepletionSpeed,
+				"depletion_grace_days": merged.DepletionGraceDays,
+				"depletion_period":  merged.DepletionPeriod,
+				"depletion_period_gb": merged.DepletionPeriodGB,
+				"window_quota_gb":   merged.WindowQuotaGB,
+				"window_minutes":    merged.WindowMinutes,
+				"window_action":     merged.WindowAction,
+				"window_speed":      merged.WindowSpeed,
 			}).Error; err != nil {
 			return needRestart, err
 		}

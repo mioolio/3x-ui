@@ -119,7 +119,8 @@
       "daily": "Harian",
       "weekly": "Mingguan",
       "monthly": "Bulanan"
-    }
+    },
+    "speedLimit": "Batas Kecepatan"
   },
   "menu": {
     "theme": "Tema",

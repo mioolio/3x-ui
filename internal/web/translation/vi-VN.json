@@ -119,7 +119,8 @@
       "daily": "Hàng ngày",
       "weekly": "Hàng tuần",
       "monthly": "Hàng tháng"
-    }
+    },
+    "speedLimit": "Giới hạn tốc độ"
   },
   "menu": {
     "theme": "Chủ đề",

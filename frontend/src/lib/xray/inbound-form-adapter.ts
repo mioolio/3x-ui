@@ -129,6 +129,19 @@ function coerceTrafficReset(v: unknown): TrafficReset {
     : 'never';
 }
 
+const ONE_GB = 1024 * 1024 * 1024;
+
+// The stored quota columns are byte counts (like totalGB); the form edits GB.
+function bytesToGB(bytes: number): number {
+  if (!bytes || bytes <= 0) return 0;
+  return Math.round((bytes / ONE_GB) * 100) / 100;
+}
+
+function gbToBytes(gb: number): number {
+  if (!gb || gb <= 0) return 0;
+  return Math.round(gb * ONE_GB);
+}
+
 function coercePlanPeriod(value: unknown): string {
   return value === 'daily' || value === 'weekly' || value === 'monthly' ? value : '';
 }
@@ -239,10 +252,10 @@ export function rawInboundToFormValues(row: RawInboundRow): InboundFormValues {
     trafficReset: coerceTrafficReset(row.trafficReset),
     trafficResetDay: Math.min(31, Math.max(1, row.trafficResetDay ?? 1)),
     planPeriod: coercePlanPeriod(row.planPeriod),
-    planQuotaGB: Math.max(0, Number(row.planQuotaGB) || 0),
+    planQuotaGB: bytesToGB(Math.max(0, Number(row.planQuotaGB) || 0)),
     planAction: coercePlanAction(row.planAction),
     planSpeed: Math.max(0, Number(row.planSpeed) || 0),
-    windowQuotaGB: Math.max(0, Number(row.windowQuotaGB) || 0),
+    windowQuotaGB: bytesToGB(Math.max(0, Number(row.windowQuotaGB) || 0)),
     windowMinutes: Math.max(0, Number(row.windowMinutes) || 0),
     windowAction: coercePlanAction(row.windowAction),
     windowSpeed: Math.max(0, Number(row.windowSpeed) || 0),
@@ -405,10 +418,10 @@ export function formValuesToWirePayload(values: InboundFormValues): WireInboundP
     trafficReset: values.trafficReset,
     trafficResetDay: values.trafficResetDay,
     planPeriod: values.planPeriod,
-    planQuotaGB: values.planQuotaGB,
+    planQuotaGB: gbToBytes(Math.max(0, Number(values.planQuotaGB) || 0)),
     planAction: values.planAction,
     planSpeed: values.planAction === 'throttle' ? values.planSpeed : 0,
-    windowQuotaGB: values.windowMinutes > 0 ? values.windowQuotaGB : 0,
+    windowQuotaGB: values.windowMinutes > 0 ? gbToBytes(Math.max(0, Number(values.windowQuotaGB) || 0)) : 0,
     windowMinutes: values.windowMinutes,
     windowAction: values.windowMinutes > 0 ? values.windowAction : '',
     windowSpeed:

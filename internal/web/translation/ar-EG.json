@@ -119,7 +119,8 @@
       "daily": "يومي",
       "weekly": "أسبوعي",
       "monthly": "شهري"
-    }
+    },
+    "speedLimit": "حد السرعة"
   },
   "menu": {
     "theme": "الثيم",

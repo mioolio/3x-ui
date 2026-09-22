@@ -119,7 +119,8 @@
       "daily": "Diario",
       "weekly": "Semanal",
       "monthly": "Mensual"
-    }
+    },
+    "speedLimit": "Límite de velocidad"
   },
   "menu": {
     "theme": "Tema",

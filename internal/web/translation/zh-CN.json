@@ -119,7 +119,8 @@
       "daily": "每日",
       "weekly": "每周",
       "monthly": "每月"
-    }
+    },
+    "speedLimit": "速度限制"
   },
   "menu": {
     "theme": "主题",
