@@ -1,22 +1,33 @@
 .subscription-page {
-  --sub-grad-from: #126a72;
-  --sub-grad-to: #126a72;
-  --sub-ink-from: #183e46;
-  --sub-ink-to: #183e46;
-  --sub-accent: #126a72;
-  --bg-page: #f3f6f7;
-  --sub-card-bg: #fff;
-  --sub-card-border: #dce4e7;
-  --sub-card-shadow: 0 8px 32px rgba(20, 51, 59, 0.06);
-  --sub-hairline: #e1e8eb;
-  --sub-tile-bg: #f7f9fa;
-  --sub-tile-border: #e1e8eb;
-  --sub-row-bg: #fff;
-  --sub-row-border: #e0e7e9;
-  --sub-row-bg-hover: #f8fbfb;
-  --sub-row-border-hover: #a1bfc2;
-  --sub-row-glow: rgba(20, 74, 80, 0.12);
-  --sub-glass-bg: #fff;
+  /* --sub-grad-* paints graphics, --sub-ink-* paints text: the cyan end darkens
+     so text clears 4.5:1. --sub-accent is ACCENT.primary in SubPage.tsx. */
+  --sub-grad-from: #8b5cf6;
+  --sub-grad-to: #06b6d4;
+  --sub-ink-from: #6d28d9;
+  --sub-ink-to: #0e7490;
+  --sub-accent: #7c3aed;
+  --bg-page: linear-gradient(135deg, #e9e4ff 0%, #ddeefc 52%, #e2f7f2 100%);
+  --sub-card-bg: rgba(255, 255, 255, 0.72);
+  --sub-card-border: rgba(255, 255, 255, 0.7);
+  --sub-card-shadow: 0 1px 3px rgba(15, 23, 42, 0.05), 0 20px 56px rgba(124, 58, 237, 0.16);
+  --sub-card-sheen: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.75),
+    rgba(255, 255, 255, 0) 42%,
+    rgba(124, 58, 237, 0.22) 88%
+  );
+  --sub-blob-1: rgba(139, 92, 246, 0.55);
+  --sub-blob-2: rgba(6, 182, 212, 0.45);
+  --sub-grid: rgba(124, 58, 237, 0.06);
+  --sub-hairline: linear-gradient(90deg, rgba(139, 92, 246, 0.4), rgba(6, 182, 212, 0.4));
+  --sub-tile-bg: rgba(124, 58, 237, 0.05);
+  --sub-tile-border: rgba(124, 58, 237, 0.12);
+  --sub-row-bg: rgba(124, 58, 237, 0.045);
+  --sub-row-border: rgba(124, 58, 237, 0.11);
+  --sub-row-bg-hover: rgba(124, 58, 237, 0.09);
+  --sub-row-border-hover: rgba(124, 58, 237, 0.3);
+  --sub-row-glow: rgba(124, 58, 237, 0.28);
+  --sub-glass-bg: rgba(255, 255, 255, 0.6);
 
   position: relative;
   min-height: 100vh;
@@ -24,34 +35,115 @@
 }
 
 .subscription-page.is-dark {
-  --sub-ink-from: #c9e3e3;
-  --sub-ink-to: #c9e3e3;
-  --sub-accent: #70c7c3;
-  --bg-page: #121b20;
-  --sub-card-bg: #1b272d;
-  --sub-card-border: #314149;
-  --sub-card-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-  --sub-hairline: #35464e;
-  --sub-tile-bg: #223139;
-  --sub-tile-border: #35464e;
-  --sub-row-bg: #1b272d;
-  --sub-row-border: #35464e;
-  --sub-row-bg-hover: #24343b;
-  --sub-row-border-hover: #56858b;
-  --sub-row-glow: rgba(0, 0, 0, 0.22);
-  --sub-glass-bg: #25343c;
+  --sub-grad-from: #a78bfa;
+  --sub-grad-to: #22d3ee;
+  --sub-ink-from: #c4b5fd;
+  --sub-ink-to: #67e8f9;
+  --sub-accent: #a78bfa;
+  --bg-page: radial-gradient(ellipse 120% 90% at 18% -10%, #1f1740 0%, #16171d 52%, #101116 100%);
+  --sub-card-bg: rgba(35, 37, 43, 0.62);
+  --sub-card-border: rgba(255, 255, 255, 0.08);
+  --sub-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 24px 64px rgba(109, 40, 217, 0.24);
+  --sub-card-sheen: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.16),
+    rgba(255, 255, 255, 0) 42%,
+    rgba(167, 139, 250, 0.4) 88%
+  );
+  --sub-blob-1: rgba(139, 92, 246, 0.4);
+  --sub-blob-2: rgba(34, 211, 238, 0.26);
+  --sub-grid: rgba(255, 255, 255, 0.035);
+  --sub-hairline: linear-gradient(90deg, rgba(167, 139, 250, 0.45), rgba(34, 211, 238, 0.45));
+  --sub-tile-bg: rgba(167, 139, 250, 0.07);
+  --sub-tile-border: rgba(167, 139, 250, 0.14);
+  --sub-row-bg: rgba(167, 139, 250, 0.06);
+  --sub-row-border: rgba(167, 139, 250, 0.12);
+  --sub-row-bg-hover: rgba(167, 139, 250, 0.12);
+  --sub-row-border-hover: rgba(167, 139, 250, 0.35);
+  --sub-row-glow: rgba(139, 92, 246, 0.45);
+  --sub-glass-bg: rgba(255, 255, 255, 0.06);
 }
 
 .subscription-page.is-dark.is-ultra {
-  --bg-page: #0d1519;
-  --sub-card-bg: #141f24;
-  --sub-card-border: #27373e;
-  --sub-glass-bg: #1d2a30;
+  --bg-page: radial-gradient(ellipse 120% 90% at 18% -10%, #120a2b 0%, #050509 55%, #000 100%);
+  --sub-card-bg: rgba(16, 16, 19, 0.68);
+  --sub-card-border: rgba(255, 255, 255, 0.055);
+  --sub-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.6), 0 24px 64px rgba(88, 28, 135, 0.3);
+  --sub-blob-1: rgba(139, 92, 246, 0.22);
+  --sub-blob-2: rgba(34, 211, 238, 0.14);
+  --sub-grid: rgba(255, 255, 255, 0.022);
+  --sub-glass-bg: rgba(255, 255, 255, 0.04);
 }
 
 .subscription-page .ant-layout,
 .subscription-page .ant-layout-content {
   background: transparent;
+}
+
+/* aurora backdrop */
+.sub-aurora {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.sub-aurora-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--sub-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--sub-grid) 1px, transparent 1px);
+  background-size: 48px 48px;
+  background-position: center;
+  -webkit-mask-image: radial-gradient(ellipse at 50% 30%, black 20%, transparent 72%);
+  mask-image: radial-gradient(ellipse at 50% 30%, black 20%, transparent 72%);
+}
+
+.sub-aurora::before,
+.sub-aurora::after {
+  content: '';
+  position: absolute;
+  width: 70vmax;
+  height: 70vmax;
+  max-width: 820px;
+  max-height: 820px;
+  border-radius: 50%;
+  filter: blur(80px);
+  will-change: transform;
+}
+
+.sub-aurora::before {
+  top: -22vmax;
+  left: -16vmax;
+  background: radial-gradient(circle, var(--sub-blob-1) 0%, transparent 65%);
+  animation: sub-blob-a 28s ease-in-out infinite alternate;
+}
+
+.sub-aurora::after {
+  bottom: -24vmax;
+  right: -18vmax;
+  background: radial-gradient(circle, var(--sub-blob-2) 0%, transparent 65%);
+  animation: sub-blob-b 34s ease-in-out infinite alternate;
+}
+
+@keyframes sub-blob-a {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    transform: translate(16vw, 14vh) scale(1.18);
+  }
+}
+
+@keyframes sub-blob-b {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    transform: translate(-14vw, -12vh) scale(1.15);
+  }
 }
 
 .sub-content {
@@ -66,10 +158,30 @@
 }
 
 .subscription-page .sub-card {
-  border-radius: 14px;
+  position: relative;
+  border-radius: 20px;
   border: 1px solid var(--sub-card-border);
   background: var(--sub-card-bg);
   box-shadow: var(--sub-card-shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+}
+
+/* Hairline gradient rim: a padded sheen layer with its own middle masked out. */
+.subscription-page .sub-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--sub-card-sheen);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
 }
 
 .sub-card > .ant-card-body {
@@ -88,7 +200,7 @@
   font-size: 13px;
 }
 
-/* Quiet separators keep the account summary readable on small screens. */
+/* Gradient hairline shared by the header, the stats grid and the footer. */
 .sub-header::after,
 .sub-stats::before,
 .sub-footer::before {
@@ -129,8 +241,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 10px;
-  background: var(--sub-accent);
+  border-radius: 13px;
+  background: linear-gradient(135deg, var(--sub-grad-from), var(--sub-grad-to));
+  box-shadow: 0 8px 20px -8px var(--sub-row-glow);
   color: #fff;
   font-size: 20px;
   font-weight: 600;
@@ -181,6 +294,8 @@
   border-color: var(--sub-row-border);
   background: var(--sub-glass-bg);
   color: var(--sub-accent);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }
 
 .subscription-page .toolbar-btn:hover {
@@ -199,10 +314,6 @@
   grid-template-columns: auto minmax(0, 1fr);
   gap: 32px;
   align-items: center;
-  border: 1px solid var(--sub-tile-border);
-  border-radius: 12px;
-  padding: 24px;
-  background: var(--sub-tile-bg);
 }
 
 .sub-ring .ant-progress-text {
@@ -241,6 +352,10 @@
   font-weight: 700;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
+  background: linear-gradient(135deg, var(--sub-ink-from), var(--sub-ink-to));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
   color: var(--sub-ink-from);
 }
 
@@ -250,6 +365,8 @@
 }
 
 .sub-hero.is-alert .sub-big-num {
+  background: none;
+  -webkit-text-fill-color: var(--ant-color-error);
   color: var(--ant-color-error);
 }
 
@@ -269,8 +386,8 @@
 .sub-stat {
   padding: 10px 12px;
   border-radius: 12px;
-  border: 1px solid var(--sub-row-border);
-  background: var(--sub-card-bg);
+  border: 1px solid var(--sub-tile-border);
+  background: var(--sub-tile-bg);
 }
 
 .sub-stat-value {
@@ -292,8 +409,9 @@
 }
 
 .sub-tabs.ant-tabs .ant-tabs-ink-bar {
-  height: 2px;
-  background: var(--sub-accent);
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--sub-grad-from), var(--sub-grad-to));
 }
 
 .sub-tab-count {
@@ -323,12 +441,16 @@
   border: 1px solid var(--sub-row-border);
   transition:
     background 160ms ease,
-    border-color 160ms ease;
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
 }
 
 .sub-row:hover {
   background: var(--sub-row-bg-hover);
   border-color: var(--sub-row-border-hover);
+  box-shadow: 0 8px 20px -14px var(--sub-row-glow);
+  transform: translateY(-1px);
 }
 
 .sub-row-tag {
@@ -593,6 +715,8 @@ a.sub-row-title:hover {
   border: 1px solid var(--sub-tile-border);
   border-radius: 12px;
   background: var(--sub-tile-bg);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }
 
 .sub-window-card.is-compact {
@@ -666,6 +790,18 @@ a.sub-row-title:hover {
   border: 1px solid var(--sub-row-border);
   border-radius: 12px;
   background: var(--sub-row-bg);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.sub-node-card:hover {
+  border-color: var(--sub-row-border-hover);
+  box-shadow: 0 8px 20px -14px var(--sub-row-glow);
+  transform: translateY(-1px);
 }
 
 .sub-node-heading {
@@ -774,6 +910,18 @@ a.sub-row-title:hover {
   gap: 6px;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .sub-aurora::before,
+  .sub-aurora::after {
+    animation: none;
+  }
+
+  .sub-row:hover,
+  .sub-node-card:hover {
+    transform: none;
+  }
+}
+
 @media (max-width: 576px) {
   .sub-content {
     padding: 16px 8px;
@@ -783,10 +931,18 @@ a.sub-row-title:hover {
     padding: 16px;
   }
 
+  /* One static blob: two animated 70vmax blurs drop frames on low-end phones. */
+  .sub-aurora::before {
+    animation: none;
+  }
+
+  .sub-aurora::after {
+    display: none;
+  }
+
   .sub-hero {
     grid-template-columns: minmax(0, 1fr);
     gap: 20px;
-    padding: 18px;
   }
 
   .sub-ring {

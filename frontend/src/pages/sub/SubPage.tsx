@@ -45,19 +45,19 @@ const apps = buildSubApps({ subUrl, sId, subTitle });
 const initialPlatform = detectPlatform(navigator.userAgent);
 const RTL_LANGUAGES = new Set(['fa-IR', 'ar-EG']);
 
-// The share page uses a restrained accent independent from the admin panel.
+// The share page has its own violet accent, separate from the admin panel.
 const ACCENT = {
   light: {
-    primary: '#126a72',
-    hover: '#167d86',
-    active: '#0d5058',
-    rail: '#e2e9eb',
+    primary: '#7c3aed',
+    hover: '#8b5cf6',
+    active: '#6d28d9',
+    rail: 'rgba(124, 58, 237, 0.16)',
   },
   dark: {
-    primary: '#70c7c3',
-    hover: '#8cd9d5',
-    active: '#4caaa8',
-    rail: '#314148',
+    primary: '#a78bfa',
+    hover: '#c4b5fd',
+    active: '#8b5cf6',
+    rail: 'rgba(167, 139, 250, 0.18)',
   },
 };
 
@@ -285,6 +285,9 @@ export default function SubPage() {
     <ConfigProvider theme={themeConfig} direction={direction}>
       {messageContextHolder}
       <Layout className={pageClass} dir={direction}>
+        <div className="sub-aurora" aria-hidden="true">
+          <span className="sub-aurora-grid" />
+        </div>
         <Layout.Content className="sub-content">
           <Card className="sub-card">
             <SubHeader title={subTitle} lang={lang} onLangChange={onLangChange} />
