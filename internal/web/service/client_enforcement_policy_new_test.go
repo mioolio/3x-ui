@@ -91,7 +91,7 @@ func TestTrafficPollStoresPhysicalAndDiscountSeparately(t *testing.T) {
 	}
 	svc := new(InboundService)
 	if err := db.Transaction(func(tx *gorm.DB) error {
-		return svc.addClientTraffic(tx, []*xray.ClientTraffic{{Email: email, Up: 100, ChargeDiscountDelta: 99}})
+		return svc.addClientTraffic(tx, []*xray.ClientTraffic{{Email: email, Up: 100, ChargeDiscountDelta: 99, ChargeDiscountUpDelta: 99}})
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -101,6 +101,12 @@ func TestTrafficPollStoresPhysicalAndDiscountSeparately(t *testing.T) {
 	}
 	if got.Up != 100 || got.ChargeDiscountBytes != 99 || got.ChargeExtraBytes != 0 {
 		t.Fatalf("traffic poll persisted %+v", got)
+	}
+	if got.ChargeDiscountUpBytes != 99 || got.ChargeDiscountDownBytes != 0 {
+		t.Fatalf("directional discount persisted %+v", got)
+	}
+	if up, down := got.BilledUsage(); up != 1 || down != 0 {
+		t.Fatalf("directional billed usage=%d/%d, want 1/0", up, down)
 	}
 	if _, charged := policyUsedBytes(&got); charged != 1 {
 		t.Fatalf("charged usage = %d, want 1", charged)

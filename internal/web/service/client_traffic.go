@@ -117,7 +117,10 @@ func (s *ClientService) BulkResetTraffic(inboundSvc *InboundService, emails []st
 				res := tx.Model(xray.ClientTraffic{}).
 					Where("email IN ?", batch).
 					Updates(map[string]any{"enable": true, "up": 0, "down": 0,
-						"charge_extra_bytes": 0, "charge_discount_bytes": 0, "grace_baseline_bytes": 0,
+						"charge_extra_bytes": 0, "charge_discount_bytes": 0,
+						"charge_extra_up_bytes": 0, "charge_extra_down_bytes": 0,
+						"charge_discount_up_bytes": 0, "charge_discount_down_bytes": 0,
+						"grace_baseline_bytes":  0,
 						"grace_baseline_expiry": 0, "quota_epoch": time.Now().UnixNano()})
 				if res.Error != nil {
 					return res.Error
@@ -184,7 +187,10 @@ func (s *ClientService) resetAllClientTrafficsLocked(id int) error {
 		result := tx.Model(xray.ClientTraffic{}).
 			Where("email IN ?", resetEmails).
 			Updates(map[string]any{"enable": true, "up": 0, "down": 0,
-				"charge_extra_bytes": 0, "charge_discount_bytes": 0, "grace_baseline_bytes": 0,
+				"charge_extra_bytes": 0, "charge_discount_bytes": 0,
+				"charge_extra_up_bytes": 0, "charge_extra_down_bytes": 0,
+				"charge_discount_up_bytes": 0, "charge_discount_down_bytes": 0,
+				"grace_baseline_bytes":  0,
 				"grace_baseline_expiry": 0, "quota_epoch": time.Now().UnixNano()})
 
 		if result.Error != nil {
@@ -226,7 +232,10 @@ func (s *ClientService) ResetAllTraffics() (bool, error) {
 			res := tx.Model(&xray.ClientTraffic{}).
 				Where("1 = 1").
 				Updates(map[string]any{"enable": true, "up": 0, "down": 0,
-					"charge_extra_bytes": 0, "charge_discount_bytes": 0, "grace_baseline_bytes": 0,
+					"charge_extra_bytes": 0, "charge_discount_bytes": 0,
+					"charge_extra_up_bytes": 0, "charge_extra_down_bytes": 0,
+					"charge_discount_up_bytes": 0, "charge_discount_down_bytes": 0,
+					"grace_baseline_bytes":  0,
 					"grace_baseline_expiry": 0, "quota_epoch": time.Now().UnixNano()})
 			if res.Error != nil {
 				return res.Error

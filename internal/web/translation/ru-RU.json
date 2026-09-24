@@ -321,6 +321,7 @@
     "inbounds": {
       "totalDownUp": "Отправлено/получено",
       "totalUsage": "Всего трафика",
+      "actualTransfer": "Фактическая передача",
       "inboundCount": "Всего подключений",
       "operate": "Меню",
       "enable": "Включить",

@@ -321,6 +321,7 @@
     "inbounds": {
       "totalDownUp": "Total Enviado/Recebido",
       "totalUsage": "Uso Total",
+      "actualTransfer": "Tráfego real",
       "inboundCount": "Total de Inbounds",
       "operate": "Menu",
       "enable": "Ativado",

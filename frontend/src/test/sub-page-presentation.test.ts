@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  formatBilledTrafficBytes,
   formatMaximumKbps,
   formatTrafficMultiplier,
   hasCrossedPageBoundary,
@@ -9,6 +10,14 @@ import {
 } from '@/pages/sub/subPageModel';
 
 describe('subscriber display values', () => {
+  it('shows directional quota debits instead of physical transfer when billed values are supplied', () => {
+    expect(formatBilledTrafficBytes(31.71 * 50 * 1024 ** 2, '31.71MB')).toBe('1.55GB');
+    expect(formatBilledTrafficBytes(1.46 * 50 * 1024 ** 2, '1.46MB')).toBe('73.00MB');
+    expect(formatBilledTrafficBytes(0, '31.71MB')).toBe('0.00B');
+    expect(formatBilledTrafficBytes(undefined, '31.71MB')).toBe('31.71MB');
+    expect(formatBilledTrafficBytes('invalid', '31.71MB')).toBe('31.71MB');
+  });
+
   it('rounds a fixed-window countdown up to the next minute and never goes negative', () => {
     const now = 1_700_000_000_000;
     expect(minutesUntil(now + 60_001, now)).toBe(2);

@@ -610,6 +610,10 @@ func (s *SubService) AggregateTrafficByEmails(emails []string) (xray.ClientTraff
 			agg.Down = ct.Down
 			agg.ChargeExtraBytes = ct.ChargeExtraBytes
 			agg.ChargeDiscountBytes = ct.ChargeDiscountBytes
+			agg.ChargeExtraUpBytes = ct.ChargeExtraUpBytes
+			agg.ChargeExtraDownBytes = ct.ChargeExtraDownBytes
+			agg.ChargeDiscountUpBytes = ct.ChargeDiscountUpBytes
+			agg.ChargeDiscountDownBytes = ct.ChargeDiscountDownBytes
 			agg.Total = total
 			agg.ExpiryTime = subscriptionExpiryFromClient(now, expiry)
 			agg.ResetDay = resetDay
@@ -620,6 +624,10 @@ func (s *SubService) AggregateTrafficByEmails(emails []string) (xray.ClientTraff
 		agg.Down += ct.Down
 		agg.ChargeExtraBytes += ct.ChargeExtraBytes
 		agg.ChargeDiscountBytes += ct.ChargeDiscountBytes
+		agg.ChargeExtraUpBytes += ct.ChargeExtraUpBytes
+		agg.ChargeExtraDownBytes += ct.ChargeExtraDownBytes
+		agg.ChargeDiscountUpBytes += ct.ChargeDiscountUpBytes
+		agg.ChargeDiscountDownBytes += ct.ChargeDiscountDownBytes
 		if resetDay != agg.ResetDay {
 			agg.ResetDay = 0
 		}
@@ -2951,36 +2959,38 @@ func searchHost(headers any) string {
 // PageData is a view model for subpage.html
 // PageData contains data for rendering the subscription information page.
 type PageData struct {
-	Host          string
-	BasePath      string
-	SId           string
-	Enabled       bool
-	IsOnline      bool
-	Download      string
-	Upload        string
-	Total         string
-	Used          string
-	Remained      string
-	Expire        int64
-	LastOnline    int64
-	Datepicker    string
-	DownloadByte  int64
-	UploadByte    int64
-	UsedByte      int64
-	TotalByte     int64
-	SubUrl        string
-	SubJsonUrl    string
-	SubClashUrl   string
-	SubTitle      string
-	SubSupportUrl string
-	SubAnnounce   string
-	Result        []string
-	Emails        []string
-	WindowQuota   *service.WindowStatus
-	WindowQuotas  []AccountWindowQuota
-	AccountStates []AccountPublicStatus
-	Nodes         []NodeOverview
-	PublicState   string
+	Host           string
+	BasePath       string
+	SId            string
+	Enabled        bool
+	IsOnline       bool
+	Download       string
+	Upload         string
+	Total          string
+	Used           string
+	Remained       string
+	Expire         int64
+	LastOnline     int64
+	Datepicker     string
+	DownloadByte   int64
+	UploadByte     int64
+	BilledDownByte int64
+	BilledUpByte   int64
+	UsedByte       int64
+	TotalByte      int64
+	SubUrl         string
+	SubJsonUrl     string
+	SubClashUrl    string
+	SubTitle       string
+	SubSupportUrl  string
+	SubAnnounce    string
+	Result         []string
+	Emails         []string
+	WindowQuota    *service.WindowStatus
+	WindowQuotas   []AccountWindowQuota
+	AccountStates  []AccountPublicStatus
+	Nodes          []NodeOverview
+	PublicState    string
 }
 
 // AccountPublicStatus exposes availability without revealing the traffic
@@ -3416,14 +3426,14 @@ func (s *SubService) joinPathWithID(basePath, subId string) string {
 func (s *SubService) BuildPageData(subId string, hostHeader string, traffic xray.ClientTraffic, lastOnline int64, subs []string, emails []string, subURL, subJsonURL, subClashURL string, basePath string, subTitle string, subSupportUrl string) PageData {
 	windowQuota, accountWindows, nodeWindows := s.loadWindowQuotaPage(subId)
 	accountStates := s.loadAccountPublicStatuses(subId, emails, accountWindows)
-	physicalUsed := positiveSum(traffic.Up, traffic.Down)
-	chargedUsed := max(0, positiveSum(physicalUsed, max(traffic.ChargeExtraBytes, 0))-max(traffic.ChargeDiscountBytes, 0))
+	billedUp, billedDown := traffic.BilledUsage()
+	chargedUsed := positiveSum(billedUp, billedDown)
 	publicState := summarizeAccountStates(accountStates)
 	if publicState == "" {
 		publicState = publicPolicyState(s.loadSubPolicyStatus(subId, traffic, windowQuota))
 	}
-	download := common.FormatTraffic(traffic.Down)
-	upload := common.FormatTraffic(traffic.Up)
+	download := common.FormatTraffic(billedDown)
+	upload := common.FormatTraffic(billedUp)
 	total := "∞"
 	used := common.FormatTraffic(chargedUsed)
 	remained := ""
@@ -3452,35 +3462,37 @@ func (s *SubService) BuildPageData(subId string, hostHeader string, traffic xray
 	}
 
 	return PageData{
-		Host:          hostHeader,
-		BasePath:      basePath,
-		SId:           subId,
-		Enabled:       traffic.Enable,
-		IsOnline:      subIsOnline(emails, s.inboundService.GetOnlineClients()),
-		Download:      download,
-		Upload:        upload,
-		Total:         total,
-		Used:          used,
-		Remained:      remained,
-		Expire:        traffic.ExpiryTime / 1000,
-		LastOnline:    lastOnline,
-		Datepicker:    datepicker,
-		DownloadByte:  traffic.Down,
-		UploadByte:    traffic.Up,
-		UsedByte:      chargedUsed,
-		TotalByte:     traffic.Total,
-		SubUrl:        subURL,
-		SubJsonUrl:    subJsonURL,
-		SubClashUrl:   subClashURL,
-		SubTitle:      subTitle,
-		SubSupportUrl: subSupportUrl,
-		Result:        pageLinks,
-		Emails:        pageEmails,
-		WindowQuota:   windowQuota,
-		WindowQuotas:  accountWindows,
-		AccountStates: accountStates,
-		Nodes:         s.loadNodeOverview(subId, nodeWindows),
-		PublicState:   publicState,
+		Host:           hostHeader,
+		BasePath:       basePath,
+		SId:            subId,
+		Enabled:        traffic.Enable,
+		IsOnline:       subIsOnline(emails, s.inboundService.GetOnlineClients()),
+		Download:       download,
+		Upload:         upload,
+		Total:          total,
+		Used:           used,
+		Remained:       remained,
+		Expire:         traffic.ExpiryTime / 1000,
+		LastOnline:     lastOnline,
+		Datepicker:     datepicker,
+		DownloadByte:   billedDown,
+		UploadByte:     billedUp,
+		BilledDownByte: billedDown,
+		BilledUpByte:   billedUp,
+		UsedByte:       chargedUsed,
+		TotalByte:      traffic.Total,
+		SubUrl:         subURL,
+		SubJsonUrl:     subJsonURL,
+		SubClashUrl:    subClashURL,
+		SubTitle:       subTitle,
+		SubSupportUrl:  subSupportUrl,
+		Result:         pageLinks,
+		Emails:         pageEmails,
+		WindowQuota:    windowQuota,
+		WindowQuotas:   accountWindows,
+		AccountStates:  accountStates,
+		Nodes:          s.loadNodeOverview(subId, nodeWindows),
+		PublicState:    publicState,
 	}
 }
 

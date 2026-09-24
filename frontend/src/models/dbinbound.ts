@@ -8,6 +8,10 @@ export interface ClientStats {
   email: string;
   up: number;
   down: number;
+  billedUp?: number;
+  billedDown?: number;
+  chargeExtraBytes?: number;
+  chargeDiscountBytes?: number;
   total: number;
   expiryTime: number;
   enable?: boolean;

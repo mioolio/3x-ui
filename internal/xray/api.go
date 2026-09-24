@@ -792,7 +792,7 @@ func (x *XrayAPI) GetTraffic() ([]*Traffic, []*ClientTraffic, error) {
 		}
 		return row
 	}
-	addGlobalCharge := func(email string, extra, discount int64) {
+	addGlobalCharge := func(email, direction string, extra, discount int64) {
 		if extra <= 0 && discount <= 0 {
 			return
 		}
@@ -803,6 +803,13 @@ func (x *XrayAPI) GetTraffic() ([]*Traffic, []*ClientTraffic, error) {
 		}
 		row.ChargeExtraDelta = addNonnegativeStatDelta(row.ChargeExtraDelta, extra)
 		row.ChargeDiscountDelta = addNonnegativeStatDelta(row.ChargeDiscountDelta, discount)
+		if direction == "uplink" {
+			row.ChargeExtraUpDelta = addNonnegativeStatDelta(row.ChargeExtraUpDelta, extra)
+			row.ChargeDiscountUpDelta = addNonnegativeStatDelta(row.ChargeDiscountUpDelta, discount)
+		} else {
+			row.ChargeExtraDownDelta = addNonnegativeStatDelta(row.ChargeExtraDownDelta, extra)
+			row.ChargeDiscountDownDelta = addNonnegativeStatDelta(row.ChargeDiscountDownDelta, discount)
+		}
 	}
 
 	baselinePass := len(x.StatsLastValues) == 0
@@ -848,7 +855,7 @@ func (x *XrayAPI) GetTraffic() ([]*Traffic, []*ClientTraffic, error) {
 			row := getInbound(tag, email)
 			row.ChargeCountersSeen = true
 			row.ChargeExtraDelta = addNonnegativeStatDelta(row.ChargeExtraDelta, value)
-			addGlobalCharge(email, value, 0)
+			addGlobalCharge(email, matches[3], value, 0)
 		} else if matches := panelChargeDiscountRegex.FindStringSubmatch(stat.Name); len(matches) == 4 {
 			tag, tagErr := url.QueryUnescape(matches[1])
 			email, emailErr := url.QueryUnescape(matches[2])
@@ -861,7 +868,7 @@ func (x *XrayAPI) GetTraffic() ([]*Traffic, []*ClientTraffic, error) {
 			row := getInbound(tag, email)
 			row.ChargeCountersSeen = true
 			row.ChargeDiscountDelta = addNonnegativeStatDelta(row.ChargeDiscountDelta, value)
-			addGlobalCharge(email, 0, value)
+			addGlobalCharge(email, matches[3], 0, value)
 		}
 	}
 

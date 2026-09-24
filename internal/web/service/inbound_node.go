@@ -229,17 +229,26 @@ const resetGracePeriodMs int64 = 30000
 const onlineGracePeriodMs int64 = 20000
 
 type nodeTrafficCounter struct {
-	Up       int64
-	Down     int64
-	Extra    int64
-	Discount int64
+	Up           int64
+	Down         int64
+	Extra        int64
+	Discount     int64
+	ExtraUp      int64
+	ExtraDown    int64
+	DiscountUp   int64
+	DiscountDown int64
 }
 
-func (s *InboundService) upsertNodeBaseline(tx *gorm.DB, nodeID int, email string, up, down, extra, discount int64) error {
+func (s *InboundService) upsertNodeBaseline(tx *gorm.DB, nodeID int, email string, counter nodeTrafficCounter) error {
 	return tx.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "node_id"}, {Name: "email"}},
-		DoUpdates: clause.AssignmentColumns([]string{"up", "down", "charge_extra_bytes", "charge_discount_bytes"}),
-	}).Create(&model.NodeClientTraffic{NodeId: nodeID, Email: email, Up: up, Down: down, ChargeExtraBytes: extra, ChargeDiscountBytes: discount}).Error
+		DoUpdates: clause.AssignmentColumns([]string{"up", "down", "charge_extra_bytes", "charge_discount_bytes", "charge_extra_up_bytes", "charge_extra_down_bytes", "charge_discount_up_bytes", "charge_discount_down_bytes"}),
+	}).Create(&model.NodeClientTraffic{
+		NodeId: nodeID, Email: email, Up: counter.Up, Down: counter.Down,
+		ChargeExtraBytes: counter.Extra, ChargeDiscountBytes: counter.Discount,
+		ChargeExtraUpBytes: counter.ExtraUp, ChargeExtraDownBytes: counter.ExtraDown,
+		ChargeDiscountUpBytes: counter.DiscountUp, ChargeDiscountDownBytes: counter.DiscountDown,
+	}).Error
 }
 
 // mergeActivationExpiry: master absolute wins; node may only activate when
@@ -644,7 +653,12 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 		return false, err
 	}
 	for i := range baselineRows {
-		nodeBaselines[baselineRows[i].Email] = nodeTrafficCounter{Up: baselineRows[i].Up, Down: baselineRows[i].Down, Extra: baselineRows[i].ChargeExtraBytes, Discount: baselineRows[i].ChargeDiscountBytes}
+		nodeBaselines[baselineRows[i].Email] = nodeTrafficCounter{
+			Up: baselineRows[i].Up, Down: baselineRows[i].Down,
+			Extra: baselineRows[i].ChargeExtraBytes, Discount: baselineRows[i].ChargeDiscountBytes,
+			ExtraUp: baselineRows[i].ChargeExtraUpBytes, ExtraDown: baselineRows[i].ChargeExtraDownBytes,
+			DiscountUp: baselineRows[i].ChargeDiscountUpBytes, DiscountDown: baselineRows[i].ChargeDiscountDownBytes,
+		}
 	}
 
 	var defaultUserId int
@@ -691,6 +705,18 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 			}
 			if snapIb.ClientStats[i].ChargeDiscountBytes > cur.Discount {
 				cur.Discount = snapIb.ClientStats[i].ChargeDiscountBytes
+			}
+			if snapIb.ClientStats[i].ChargeExtraUpBytes > cur.ExtraUp {
+				cur.ExtraUp = snapIb.ClientStats[i].ChargeExtraUpBytes
+			}
+			if snapIb.ClientStats[i].ChargeExtraDownBytes > cur.ExtraDown {
+				cur.ExtraDown = snapIb.ClientStats[i].ChargeExtraDownBytes
+			}
+			if snapIb.ClientStats[i].ChargeDiscountUpBytes > cur.DiscountUp {
+				cur.DiscountUp = snapIb.ClientStats[i].ChargeDiscountUpBytes
+			}
+			if snapIb.ClientStats[i].ChargeDiscountDownBytes > cur.DiscountDown {
+				cur.DiscountDown = snapIb.ClientStats[i].ChargeDiscountDownBytes
 			}
 			nodeEmailTotals[email] = cur
 		}
@@ -1032,6 +1058,7 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 
 			base, seen := nodeBaselines[cs.Email]
 			var deltaUp, deltaDown, deltaExtra, deltaDiscount int64
+			var deltaExtraUp, deltaExtraDown, deltaDiscountUp, deltaDiscountDown int64
 			if seen {
 				if deltaUp = canon.Up - base.Up; deltaUp < 0 {
 					deltaUp = 0
@@ -1045,6 +1072,21 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 				if deltaDiscount = canon.Discount - base.Discount; deltaDiscount < 0 {
 					deltaDiscount = 0
 				}
+				deltaExtraUp = max(0, canon.ExtraUp-base.ExtraUp)
+				deltaExtraDown = max(0, canon.ExtraDown-base.ExtraDown)
+				deltaDiscountUp = max(0, canon.DiscountUp-base.DiscountUp)
+				deltaDiscountDown = max(0, canon.DiscountDown-base.DiscountDown)
+				// An older node reports aggregate charges but no directional
+				// counters. Bound directional deltas by the aggregate delta so a
+				// rolling upgrade never duplicates historical charges.
+				if deltaExtraUp > deltaExtra {
+					deltaExtraUp = deltaExtra
+				}
+				deltaExtraDown = min(deltaExtraDown, deltaExtra-deltaExtraUp)
+				if deltaDiscountUp > deltaDiscount {
+					deltaDiscountUp = deltaDiscount
+				}
+				deltaDiscountDown = min(deltaDiscountDown, deltaDiscount-deltaDiscountUp)
 			}
 
 			if _, rowExists := existingEmails[cs.Email]; !rowExists {
@@ -1061,22 +1103,29 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 					continue
 				}
 				var seedUp, seedDown, seedExtra, seedDiscount int64
+				var seedExtraUp, seedExtraDown, seedDiscountUp, seedDiscountDown int64
 				if isNewInbound && !isClientEmailTombstoned(cs.Email) {
 					seedUp, seedDown, seedExtra, seedDiscount = canon.Up, canon.Down, canon.Extra, canon.Discount
+					seedExtraUp, seedExtraDown = canon.ExtraUp, canon.ExtraDown
+					seedDiscountUp, seedDiscountDown = canon.DiscountUp, canon.DiscountDown
 				}
 				row := &xray.ClientTraffic{
-					InboundId:           c.Id,
-					Email:               cs.Email,
-					Enable:              cs.Enable,
-					Total:               cs.Total,
-					ExpiryTime:          cs.ExpiryTime,
-					Reset:               cs.Reset,
-					ResetDay:            cs.ResetDay,
-					Up:                  seedUp,
-					Down:                seedDown,
-					ChargeExtraBytes:    seedExtra,
-					ChargeDiscountBytes: seedDiscount,
-					LastOnline:          cs.LastOnline,
+					InboundId:               c.Id,
+					Email:                   cs.Email,
+					Enable:                  cs.Enable,
+					Total:                   cs.Total,
+					ExpiryTime:              cs.ExpiryTime,
+					Reset:                   cs.Reset,
+					ResetDay:                cs.ResetDay,
+					Up:                      seedUp,
+					Down:                    seedDown,
+					ChargeExtraBytes:        seedExtra,
+					ChargeDiscountBytes:     seedDiscount,
+					ChargeExtraUpBytes:      seedExtraUp,
+					ChargeExtraDownBytes:    seedExtraDown,
+					ChargeDiscountUpBytes:   seedDiscountUp,
+					ChargeDiscountDownBytes: seedDiscountDown,
+					LastOnline:              cs.LastOnline,
 				}
 				if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "email"}}, DoNothing: true}).
 					Create(row).Error; err != nil {
@@ -1086,10 +1135,10 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 				centralCSByEmail[cs.Email] = row
 				existingEmails[cs.Email] = struct{}{}
 				structuralChange = true
-				if err := s.upsertNodeBaseline(tx, nodeID, cs.Email, canon.Up, canon.Down, canon.Extra, canon.Discount); err != nil {
+				if err := s.upsertNodeBaseline(tx, nodeID, cs.Email, canon); err != nil {
 					return false, err
 				}
-				nodeBaselines[cs.Email] = nodeTrafficCounter{Up: canon.Up, Down: canon.Down, Extra: canon.Extra, Discount: canon.Discount}
+				nodeBaselines[cs.Email] = canon
 				continue
 			}
 
@@ -1129,14 +1178,18 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 				if err := tx.Exec(
 					fmt.Sprintf(
 						`UPDATE client_traffics
-						 SET up = ?, down = ?, charge_extra_bytes = ?, charge_discount_bytes = ?, enable = ?, total = ?,
+						 SET up = ?, down = ?, charge_extra_bytes = ?, charge_discount_bytes = ?,
+						     charge_extra_up_bytes = ?, charge_extra_down_bytes = ?,
+						     charge_discount_up_bytes = ?, charge_discount_down_bytes = ?, enable = ?, total = ?,
 						     expiry_time = ?, reset = ?, reset_day = ?, reset_count = ?,
 						     quota_epoch = ?, grace_baseline_bytes = 0, grace_baseline_expiry = 0,
 						     last_online = %s
 						 WHERE email = ?`,
 						database.GreatestExpr("last_online", "?"),
 					),
-					canon.Up, canon.Down, canon.Extra, canon.Discount, cs.Enable, cs.Total,
+					canon.Up, canon.Down, canon.Extra, canon.Discount,
+					canon.ExtraUp, canon.ExtraDown, canon.DiscountUp, canon.DiscountDown,
+					cs.Enable, cs.Total,
 					cs.ExpiryTime, cs.Reset, cs.ResetDay, cs.ResetCount, time.Now().UnixNano(),
 					cs.LastOnline, cs.Email,
 				).Error; err != nil {
@@ -1149,6 +1202,10 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 				existing.Down = canon.Down
 				existing.ChargeExtraBytes = canon.Extra
 				existing.ChargeDiscountBytes = canon.Discount
+				existing.ChargeExtraUpBytes = canon.ExtraUp
+				existing.ChargeExtraDownBytes = canon.ExtraDown
+				existing.ChargeDiscountUpBytes = canon.DiscountUp
+				existing.ChargeDiscountDownBytes = canon.DiscountDown
 				existing.Enable = cs.Enable
 				existing.Total = cs.Total
 				existing.ExpiryTime = cs.ExpiryTime
@@ -1161,15 +1218,23 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 				if err := tx.Exec(
 					fmt.Sprintf(
 						`UPDATE client_traffics
-						 SET up = %s, down = %s, charge_extra_bytes = %s, charge_discount_bytes = %s, last_online = %s
+						 SET up = %s, down = %s, charge_extra_bytes = %s, charge_discount_bytes = %s,
+						     charge_extra_up_bytes = %s, charge_extra_down_bytes = %s,
+						     charge_discount_up_bytes = %s, charge_discount_down_bytes = %s, last_online = %s
 						 WHERE email = ?`,
 						database.ClampedAddExpr("up"),
 						database.ClampedAddExpr("down"),
 						database.ClampedAddExpr("charge_extra_bytes"),
 						database.ClampedAddExpr("charge_discount_bytes"),
+						database.ClampedAddExpr("charge_extra_up_bytes"),
+						database.ClampedAddExpr("charge_extra_down_bytes"),
+						database.ClampedAddExpr("charge_discount_up_bytes"),
+						database.ClampedAddExpr("charge_discount_down_bytes"),
 						database.GreatestExpr("last_online", "?"),
 					),
-					deltaUp, deltaDown, deltaExtra, deltaDiscount, cs.LastOnline, cs.Email,
+					deltaUp, deltaDown, deltaExtra, deltaDiscount,
+					deltaExtraUp, deltaExtraDown, deltaDiscountUp, deltaDiscountDown,
+					cs.LastOnline, cs.Email,
 				).Error; err != nil {
 					return false, err
 				}
@@ -1178,6 +1243,10 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 					existing.Down = clampTrafficCounter(existing.Down + deltaDown)
 					existing.ChargeExtraBytes = clampTrafficCounter(existing.ChargeExtraBytes + deltaExtra)
 					existing.ChargeDiscountBytes = clampTrafficCounter(existing.ChargeDiscountBytes + deltaDiscount)
+					existing.ChargeExtraUpBytes = clampTrafficCounter(existing.ChargeExtraUpBytes + deltaExtraUp)
+					existing.ChargeExtraDownBytes = clampTrafficCounter(existing.ChargeExtraDownBytes + deltaExtraDown)
+					existing.ChargeDiscountUpBytes = clampTrafficCounter(existing.ChargeDiscountUpBytes + deltaDiscountUp)
+					existing.ChargeDiscountDownBytes = clampTrafficCounter(existing.ChargeDiscountDownBytes + deltaDiscountDown)
 				}
 			} else {
 				// The old SQL expression knows only hard expiry and physical
@@ -1188,7 +1257,10 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 				if err := tx.Exec(
 					fmt.Sprintf(
 						`UPDATE client_traffics
-						 SET up = %s, down = %s, charge_extra_bytes = %s, charge_discount_bytes = %s, enable = %s, total = ?,
+						 SET up = %s, down = %s, charge_extra_bytes = %s, charge_discount_bytes = %s,
+						     charge_extra_up_bytes = %s, charge_extra_down_bytes = %s,
+						     charge_discount_up_bytes = %s, charge_discount_down_bytes = %s,
+						     enable = %s, total = ?,
 						     expiry_time = %s,
 						     reset = ?, reset_day = ?, last_online = %s
 						 WHERE email = ?`,
@@ -1196,11 +1268,16 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 						database.ClampedAddExpr("down"),
 						database.ClampedAddExpr("charge_extra_bytes"),
 						database.ClampedAddExpr("charge_discount_bytes"),
+						database.ClampedAddExpr("charge_extra_up_bytes"),
+						database.ClampedAddExpr("charge_extra_down_bytes"),
+						database.ClampedAddExpr("charge_discount_up_bytes"),
+						database.ClampedAddExpr("charge_discount_down_bytes"),
 						enableExpr,
 						expiryExpr,
 						database.GreatestExpr("last_online", "?"),
 					),
 					deltaUp, deltaDown, deltaExtra, deltaDiscount,
+					deltaExtraUp, deltaExtraDown, deltaDiscountUp, deltaDiscountDown,
 					!cs.Enable && !nodeDisableStale, false,
 					cs.Total,
 					cs.ExpiryTime, cs.Reset, cs.ResetDay,
@@ -1218,6 +1295,10 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 					existing.Down = clampTrafficCounter(existing.Down + deltaDown)
 					existing.ChargeExtraBytes = clampTrafficCounter(existing.ChargeExtraBytes + deltaExtra)
 					existing.ChargeDiscountBytes = clampTrafficCounter(existing.ChargeDiscountBytes + deltaDiscount)
+					existing.ChargeExtraUpBytes = clampTrafficCounter(existing.ChargeExtraUpBytes + deltaExtraUp)
+					existing.ChargeExtraDownBytes = clampTrafficCounter(existing.ChargeExtraDownBytes + deltaExtraDown)
+					existing.ChargeDiscountUpBytes = clampTrafficCounter(existing.ChargeDiscountUpBytes + deltaDiscountUp)
+					existing.ChargeDiscountDownBytes = clampTrafficCounter(existing.ChargeDiscountDownBytes + deltaDiscountDown)
 					existing.Total = cs.Total
 					existing.Reset = cs.Reset
 				}
@@ -1227,10 +1308,10 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 			if lifecycleFrozen && seen && (canon.Up < base.Up || canon.Down < base.Down) {
 				continue
 			}
-			if err := s.upsertNodeBaseline(tx, nodeID, cs.Email, canon.Up, canon.Down, canon.Extra, canon.Discount); err != nil {
+			if err := s.upsertNodeBaseline(tx, nodeID, cs.Email, canon); err != nil {
 				return false, err
 			}
-			nodeBaselines[cs.Email] = nodeTrafficCounter{Up: canon.Up, Down: canon.Down, Extra: canon.Extra, Discount: canon.Discount}
+			nodeBaselines[cs.Email] = canon
 		}
 
 		for k, existing := range centralCS {

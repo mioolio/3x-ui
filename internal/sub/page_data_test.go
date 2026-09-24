@@ -82,3 +82,28 @@ func TestBuildPageData_UsesChargedAllowanceAfterNodeDiscount(t *testing.T) {
 		t.Fatalf("display used/remaining=%q/%q, want 1 GiB/3 GiB", page.Used, page.Remained)
 	}
 }
+
+func TestPageAndUserinfoShowBilledDirections(t *testing.T) {
+	initSubDB(t)
+	row := xray.ClientTraffic{
+		Up: 100, Down: 200, Total: 20_000,
+		ChargeExtraBytes: 9_800, ChargeExtraDownBytes: 9_800,
+	}
+	s := &SubService{}
+	page := s.BuildPageData("billed", "", row, 0, nil, nil, "", "", "", "/", "", "")
+	if page.UploadByte != 100 || page.DownloadByte != 10_000 || page.BilledUpByte != 100 || page.BilledDownByte != 10_000 || page.UsedByte != 10_100 {
+		t.Fatalf("page directional bill = %+v", page)
+	}
+	if got := s.subscriptionUserinfo(row); got != "upload=100; download=10000; total=20000; expire=0" {
+		t.Fatalf("userinfo = %q", got)
+	}
+	ctx := (&SUBController{}).subPageContext(page)
+	if ctx["billedUpByte"] != int64(100) || ctx["billedDownByte"] != int64(10_000) {
+		t.Fatalf("JSON billed fields = %v/%v", ctx["billedUpByte"], ctx["billedDownByte"])
+	}
+
+	row = xray.ClientTraffic{Up: 100, Down: 100, ChargeDiscountBytes: 99, ChargeDiscountDownBytes: 99}
+	if got := s.subscriptionUserinfo(row); got != "upload=100; download=1; total=0; expire=0" {
+		t.Fatalf("0.01x userinfo = %q", got)
+	}
+}

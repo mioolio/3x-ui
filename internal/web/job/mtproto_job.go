@@ -85,7 +85,6 @@ func (j *MtprotoJob) trafficRows(deltas []mtproto.Traffic, multipliers map[strin
 	inboundDown := make(map[string]int64)
 	for _, d := range deltas {
 		up, down := max(int64(0), d.Up), max(int64(0), d.Down)
-		physical := mtprotoAddNonnegative(up, down)
 		factor := multipliers[d.Tag]
 		routed := routedTags[d.Tag]
 		if d.RuntimePolicyKnown {
@@ -95,7 +94,12 @@ func (j *MtprotoJob) trafficRows(deltas []mtproto.Traffic, multipliers map[strin
 			factor = d.MultiplierBps
 			routed = d.RouteThroughXray
 		}
-		extra, discount := j.billTraffic(d.Tag, d.Email, physical, factor)
+		// Run the two directions through the same fractional carry, in a fixed
+		// order. Their sum remains the exact total charge from this poll.
+		extraUp, discountUp := j.billTraffic(d.Tag, d.Email, up, factor)
+		extraDown, discountDown := j.billTraffic(d.Tag, d.Email, down, factor)
+		extra := mtprotoAddNonnegative(extraUp, extraDown)
+		discount := mtprotoAddNonnegative(discountUp, discountDown)
 		row := clientsByEmail[d.Email]
 		if row == nil {
 			row = &xray.ClientTraffic{Email: d.Email}
@@ -106,6 +110,10 @@ func (j *MtprotoJob) trafficRows(deltas []mtproto.Traffic, multipliers map[strin
 		row.Down = mtprotoAddNonnegative(row.Down, down)
 		row.ChargeExtraDelta = mtprotoAddNonnegative(row.ChargeExtraDelta, extra)
 		row.ChargeDiscountDelta = mtprotoAddNonnegative(row.ChargeDiscountDelta, discount)
+		row.ChargeExtraUpDelta = mtprotoAddNonnegative(row.ChargeExtraUpDelta, extraUp)
+		row.ChargeExtraDownDelta = mtprotoAddNonnegative(row.ChargeExtraDownDelta, extraDown)
+		row.ChargeDiscountUpDelta = mtprotoAddNonnegative(row.ChargeDiscountUpDelta, discountUp)
+		row.ChargeDiscountDownDelta = mtprotoAddNonnegative(row.ChargeDiscountDownDelta, discountDown)
 		// Preserve the exact bill from the running sidecar policy. Recalculating
 		// from today's configured multiplier would lose fractional carry and
 		// misbill a final sample after an inbound policy change.

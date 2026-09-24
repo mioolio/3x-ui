@@ -20,13 +20,21 @@ type GroupSummary struct {
 	Down        int64  `json:"down"`
 }
 
+func groupBilledDirectionExpr(direction string) string {
+	// The startup migration allocates legacy aggregate charges once, so these
+	// durable directional counters are the same units as client quota use.
+	base := "COALESCE(ct." + direction + ", 0) + COALESCE(ct.charge_extra_" + direction + "_bytes, 0) - COALESCE(ct.charge_discount_" + direction + "_bytes, 0)"
+	return "CASE WHEN " + base + " > 0 THEN " + base + " ELSE 0 END"
+}
+
 func (s *ClientService) ListGroups() ([]GroupSummary, error) {
 	db := database.GetDB()
 	// email is unique in both clients and client_traffics, so the LEFT JOIN
 	// never double-counts a client's traffic.
 	var derived []GroupSummary
+	upExpr, downExpr := groupBilledDirectionExpr("up"), groupBilledDirectionExpr("down")
 	if err := db.Table("clients AS c").
-		Select("c.group_name AS name, COUNT(*) AS client_count, COALESCE(SUM(ct.up + ct.down), 0) AS traffic_used, COALESCE(SUM(ct.up), 0) AS up, COALESCE(SUM(ct.down), 0) AS down").
+		Select("c.group_name AS name, COUNT(*) AS client_count, COALESCE(SUM(" + upExpr + "), 0) + COALESCE(SUM(" + downExpr + "), 0) AS traffic_used, COALESCE(SUM(" + upExpr + "), 0) AS up, COALESCE(SUM(" + downExpr + "), 0) AS down").
 		Joins("LEFT JOIN client_traffics ct ON ct.email = c.email").
 		Where("c.group_name <> ''").
 		Group("c.group_name").
@@ -80,7 +88,7 @@ func adjustGroupBaselinesForRemovedTraffic(tx *gorm.DB, emails []string) error {
 	for _, batch := range chunkStrings(emails, sqlInChunk) {
 		var part []groupDelta
 		if err := tx.Table("clients AS c").
-			Select("c.group_name AS name, COALESCE(SUM(ct.up), 0) AS up, COALESCE(SUM(ct.down), 0) AS down").
+			Select("c.group_name AS name, COALESCE(SUM("+groupBilledDirectionExpr("up")+"), 0) AS up, COALESCE(SUM("+groupBilledDirectionExpr("down")+"), 0) AS down").
 			Joins("JOIN client_traffics ct ON ct.email = c.email").
 			Where("c.group_name <> '' AND c.email IN ?", batch).
 			Group("c.group_name").
@@ -146,7 +154,7 @@ func (s *ClientService) ResetGroupTraffic(name string) error {
 		Down int64
 	}
 	if err := db.Table("clients AS c").
-		Select("COALESCE(SUM(ct.up), 0) AS up, COALESCE(SUM(ct.down), 0) AS down").
+		Select("COALESCE(SUM("+groupBilledDirectionExpr("up")+"), 0) AS up, COALESCE(SUM("+groupBilledDirectionExpr("down")+"), 0) AS down").
 		Joins("LEFT JOIN client_traffics ct ON ct.email = c.email").
 		Where("c.group_name = ?", name).
 		Scan(&agg).Error; err != nil {

@@ -321,6 +321,7 @@
     "inbounds": {
       "totalDownUp": "Subidas/Descargas Totales",
       "totalUsage": "Uso Total",
+      "actualTransfer": "Transferencia real",
       "inboundCount": "Número de Entradas",
       "operate": "Menú",
       "enable": "Habilitar",

@@ -186,14 +186,24 @@ func (s *InboundService) addClientTraffic(tx *gorm.DB, traffics []*xray.ClientTr
 		}
 		if err = tx.Exec(
 			fmt.Sprintf(
-				`UPDATE client_traffics SET up = %s, down = %s, charge_extra_bytes = %s, charge_discount_bytes = %s, last_online = %s WHERE email = ?`,
+				`UPDATE client_traffics SET up = %s, down = %s, charge_extra_bytes = %s, charge_discount_bytes = %s,
+				 charge_extra_up_bytes = %s, charge_extra_down_bytes = %s,
+				 charge_discount_up_bytes = %s, charge_discount_down_bytes = %s,
+				 last_online = %s WHERE email = ?`,
 				database.ClampedAddExpr("up"),
 				database.ClampedAddExpr("down"),
 				database.ClampedAddExpr("charge_extra_bytes"),
 				database.ClampedAddExpr("charge_discount_bytes"),
+				database.ClampedAddExpr("charge_extra_up_bytes"),
+				database.ClampedAddExpr("charge_extra_down_bytes"),
+				database.ClampedAddExpr("charge_discount_up_bytes"),
+				database.ClampedAddExpr("charge_discount_down_bytes"),
 				database.GreatestExpr("last_online", "?"),
 			),
-			t.Up, t.Down, t.ChargeExtraDelta, t.ChargeDiscountDelta, now, ct.Email,
+			t.Up, t.Down, t.ChargeExtraDelta, t.ChargeDiscountDelta,
+			t.ChargeExtraUpDelta, t.ChargeExtraDownDelta,
+			t.ChargeDiscountUpDelta, t.ChargeDiscountDownDelta,
+			now, ct.Email,
 		).Error; err != nil {
 			return fmt.Errorf("update client traffic for %s: %w", ct.Email, err)
 		}
@@ -499,6 +509,10 @@ func (s *InboundService) autoRenewClients(tx *gorm.DB, mutationBatch *trafficMut
 				traffic.Up = 0
 				traffic.ChargeExtraBytes = 0
 				traffic.ChargeDiscountBytes = 0
+				traffic.ChargeExtraUpBytes = 0
+				traffic.ChargeExtraDownBytes = 0
+				traffic.ChargeDiscountUpBytes = 0
+				traffic.ChargeDiscountDownBytes = 0
 				traffic.GraceBaselineBytes = 0
 				traffic.GraceBaselineExpiry = 0
 				traffic.QuotaEpoch = time.Now().UnixNano()
@@ -668,7 +682,10 @@ func (s *InboundService) ResetClientTrafficByEmail(clientEmail string) error {
 			if err := tx.Model(xray.ClientTraffic{}).
 				Where("email = ?", clientEmail).
 				Updates(map[string]any{"enable": true, "up": 0, "down": 0,
-					"charge_extra_bytes": 0, "charge_discount_bytes": 0, "grace_baseline_bytes": 0,
+					"charge_extra_bytes": 0, "charge_discount_bytes": 0,
+					"charge_extra_up_bytes": 0, "charge_extra_down_bytes": 0,
+					"charge_discount_up_bytes": 0, "charge_discount_down_bytes": 0,
+					"grace_baseline_bytes":  0,
 					"grace_baseline_expiry": 0, "quota_epoch": time.Now().UnixNano()}).Error; err != nil {
 				return err
 			}
@@ -764,6 +781,10 @@ func (s *InboundService) resetClientTrafficLocked(id int, clientEmail string) (b
 	traffic.Down = 0
 	traffic.ChargeExtraBytes = 0
 	traffic.ChargeDiscountBytes = 0
+	traffic.ChargeExtraUpBytes = 0
+	traffic.ChargeExtraDownBytes = 0
+	traffic.ChargeDiscountUpBytes = 0
+	traffic.ChargeDiscountDownBytes = 0
 	traffic.GraceBaselineBytes = 0
 	traffic.GraceBaselineExpiry = 0
 	traffic.QuotaEpoch = time.Now().UnixNano()

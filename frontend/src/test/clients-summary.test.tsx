@@ -133,12 +133,21 @@ describe('client summary always reflects the server, never a client_stats recomp
     act(() => {
       result.current.applyClientStatsEvent({
         clients: [
-          { email: 'billed@x', up: 20, down: 0, chargeExtraBytes: 80, chargeDiscountBytes: 5 },
+          {
+            email: 'billed@x',
+            up: 20,
+            down: 0,
+            billedUp: 95,
+            billedDown: 0,
+            chargeExtraBytes: 80,
+            chargeDiscountBytes: 5,
+          },
         ],
       });
     });
     await waitFor(() =>
       expect(chargedTrafficBytes(result.current.clients[0].traffic || {})).toBe(95),
     );
+    expect(result.current.clients[0].traffic?.billedUp).toBe(95);
   });
 });

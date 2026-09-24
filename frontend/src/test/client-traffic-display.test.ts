@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 
-import { computeTrafficDisplay } from '@/lib/clients/traffic-display';
+import {
+  billedTrafficDirections,
+  chargedTrafficBytes,
+  computeTrafficDisplay,
+} from '@/lib/clients/traffic-display';
 import { ClientTrafficSchema } from '@/schemas/client';
 
 describe('computeTrafficDisplay', () => {
@@ -92,5 +96,35 @@ describe('computeTrafficDisplay', () => {
       false,
     );
     expect(overDiscounted.used).toBe(0);
+  });
+
+  it('shows exact billed upload and download for a 50x inbound', () => {
+    const traffic = ClientTrafficSchema.parse({
+      up: 1_000_000,
+      down: 7_000_000,
+      billedUp: 50_000_000,
+      billedDown: 350_000_000,
+      chargeExtraBytes: 392_000_000,
+      chargeDiscountBytes: 0,
+    });
+    expect(billedTrafficDirections(traffic)).toEqual({ up: 50_000_000, down: 350_000_000 });
+    expect(chargedTrafficBytes(traffic)).toBe(400_000_000);
+  });
+
+  it('shows exact discounted upload and download for a 0.01x inbound', () => {
+    const traffic = ClientTrafficSchema.parse({
+      up: 100_000_000,
+      down: 700_000_000,
+      billedUp: 1_000_000,
+      billedDown: 7_000_000,
+      chargeDiscountBytes: 792_000_000,
+    });
+    expect(billedTrafficDirections(traffic)).toEqual({ up: 1_000_000, down: 7_000_000 });
+    expect(chargedTrafficBytes(traffic)).toBe(8_000_000);
+  });
+
+  it('allocates an old combined surcharge across directions without hiding it', () => {
+    const traffic = { up: 1_000_000, down: 7_000_000, chargeExtraBytes: 392_000_000 };
+    expect(billedTrafficDirections(traffic)).toEqual({ up: 50_000_000, down: 350_000_000 });
   });
 });

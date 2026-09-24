@@ -2,6 +2,7 @@ import { getMessage } from '@/utils/messageBus';
 import { ColorUtils, ClipboardManager, FileManager } from '@/utils';
 import { Protocols } from '@/schemas/primitives';
 import { coerceInboundJsonField } from '@/models/dbinbound';
+import { chargedTrafficBytes } from '@/lib/clients/traffic-display';
 import {
   canEnableTlsFlow,
   isSS2022 as isSS2022Helper,
@@ -163,7 +164,7 @@ export function downloadText(content: string, filename: string) {
 }
 
 export function statsColor(stats: ClientStats, trafficDiff: number) {
-  return ColorUtils.usageColor(stats.up + stats.down, trafficDiff, stats.total);
+  return ColorUtils.usageColor(chargedTrafficBytes(stats), trafficDiff, stats.total);
 }
 
 export function formatIpInfo(record: unknown) {

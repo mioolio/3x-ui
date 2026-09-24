@@ -4,13 +4,15 @@ import { Popover, Progress } from 'antd';
 
 import InfinityIcon from '@/components/ui/InfinityIcon';
 import { useTheme } from '@/hooks/useTheme';
-import { computeTrafficDisplay } from '@/lib/clients/traffic-display';
+import { billedTrafficDirections, computeTrafficDisplay } from '@/lib/clients/traffic-display';
 import { SizeFormatter } from '@/utils';
 import './ClientTrafficCell.css';
 
 export interface ClientTrafficCellProps {
   up?: number;
   down?: number;
+  billedUp?: number;
+  billedDown?: number;
   chargeExtraBytes?: number;
   chargeDiscountBytes?: number;
   total?: number;
@@ -26,6 +28,8 @@ export interface ClientTrafficCellProps {
 const ClientTrafficCell = memo(function ClientTrafficCell({
   up = 0,
   down = 0,
+  billedUp,
+  billedDown,
   chargeExtraBytes = 0,
   chargeDiscountBytes = 0,
   total = 0,
@@ -39,20 +43,49 @@ const ClientTrafficCell = memo(function ClientTrafficCell({
   const display = useMemo(
     () =>
       computeTrafficDisplay(
-        { up, down, chargeExtraBytes, chargeDiscountBytes, total, enabled, trafficDiff },
+        {
+          up,
+          down,
+          billedUp,
+          billedDown,
+          chargeExtraBytes,
+          chargeDiscountBytes,
+          total,
+          enabled,
+          trafficDiff,
+        },
         isDark,
       ),
-    [up, down, chargeExtraBytes, chargeDiscountBytes, total, enabled, trafficDiff, isDark],
+    [
+      up,
+      down,
+      billedUp,
+      billedDown,
+      chargeExtraBytes,
+      chargeDiscountBytes,
+      total,
+      enabled,
+      trafficDiff,
+      isDark,
+    ],
   );
+  const billed = billedTrafficDirections({
+    up,
+    down,
+    billedUp,
+    billedDown,
+    chargeExtraBytes,
+    chargeDiscountBytes,
+  });
 
   const popover = (
     <table className="client-traffic-popover">
       <tbody>
         <tr>
           <td>↑</td>
-          <td>{SizeFormatter.sizeFormat(up)}</td>
+          <td>{SizeFormatter.sizeFormat(billed.up)}</td>
           <td>↓</td>
-          <td>{SizeFormatter.sizeFormat(down)}</td>
+          <td>{SizeFormatter.sizeFormat(billed.down)}</td>
         </tr>
         {!display.isUnlimited && (
           <tr>

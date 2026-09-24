@@ -6,6 +6,7 @@ import { parseMsg } from '@/utils/zodValidate';
 import { DBInbound, coerceInboundJsonField } from '@/models/dbinbound';
 import type { ClientStats, DBInboundInit } from '@/models/dbinbound';
 import { Protocols } from '@/schemas/primitives';
+import { chargedTrafficBytes } from '@/lib/clients/traffic-display';
 import { isSSMultiUser } from '@/lib/xray/protocol-capabilities';
 import { setDatepicker } from '@/hooks/useDatepicker';
 import { keys } from '@/api/queryKeys';
@@ -262,6 +263,10 @@ export function useInbounds() {
                 total: number;
                 up: number;
                 down: number;
+                billedUp?: number;
+                billedDown?: number;
+                chargeExtraBytes?: number;
+                chargeDiscountBytes?: number;
                 expiryTime: number;
               }[];
             }
@@ -294,7 +299,17 @@ export function useInbounds() {
       if (dbInbound.enable) {
         const statsByEmail = new Map<
           string,
-          { email: string; total: number; up: number; down: number; expiryTime: number }
+          {
+            email: string;
+            total: number;
+            up: number;
+            down: number;
+            billedUp?: number;
+            billedDown?: number;
+            chargeExtraBytes?: number;
+            chargeDiscountBytes?: number;
+            expiryTime: number;
+          }
         >();
         for (const stats of clientStats) {
           if (stats.email) statsByEmail.set(stats.email.toLowerCase(), stats);
@@ -304,7 +319,7 @@ export function useInbounds() {
           if (!client.email) continue;
           const stats = statsByEmail.get(client.email.toLowerCase());
           const exhausted =
-            stats != null && stats.total > 0 && stats.up + stats.down >= stats.total;
+            stats != null && stats.total > 0 && chargedTrafficBytes(stats) >= stats.total;
           const expired = stats != null && stats.expiryTime > 0 && stats.expiryTime <= now;
           if (expired || exhausted) {
             depleted.push(client.email);
@@ -319,7 +334,7 @@ export function useInbounds() {
           if (stats) {
             const expiringSoon =
               (stats.expiryTime > 0 && stats.expiryTime - now < expireDiff) ||
-              (stats.total > 0 && stats.total - (stats.up + stats.down) < trafficDiff);
+              (stats.total > 0 && stats.total - chargedTrafficBytes(stats) < trafficDiff);
             if (expiringSoon) expiring.push(client.email);
           }
         }
@@ -506,6 +521,10 @@ export function useInbounds() {
         email: string;
         up?: number;
         down?: number;
+        billedUp?: number;
+        billedDown?: number;
+        chargeExtraBytes?: number;
+        chargeDiscountBytes?: number;
         total?: number;
         expiryTime?: number;
         enable?: boolean;
@@ -527,6 +546,10 @@ export function useInbounds() {
         email: string;
         up?: number;
         down?: number;
+        billedUp?: number;
+        billedDown?: number;
+        chargeExtraBytes?: number;
+        chargeDiscountBytes?: number;
         total?: number;
         expiryTime?: number;
         enable?: boolean;
@@ -555,6 +578,16 @@ export function useInbounds() {
                 ...stat,
                 up: typeof su.up === 'number' ? su.up : stat.up,
                 down: typeof su.down === 'number' ? su.down : stat.down,
+                billedUp: typeof su.billedUp === 'number' ? su.billedUp : stat.billedUp,
+                billedDown: typeof su.billedDown === 'number' ? su.billedDown : stat.billedDown,
+                chargeExtraBytes:
+                  typeof su.chargeExtraBytes === 'number'
+                    ? su.chargeExtraBytes
+                    : stat.chargeExtraBytes,
+                chargeDiscountBytes:
+                  typeof su.chargeDiscountBytes === 'number'
+                    ? su.chargeDiscountBytes
+                    : stat.chargeDiscountBytes,
                 total: typeof su.total === 'number' ? su.total : stat.total,
                 expiryTime: typeof su.expiryTime === 'number' ? su.expiryTime : stat.expiryTime,
                 enable: typeof su.enable === 'boolean' ? su.enable : stat.enable,
@@ -562,6 +595,10 @@ export function useInbounds() {
               if (
                 merged.up === stat.up &&
                 merged.down === stat.down &&
+                merged.billedUp === stat.billedUp &&
+                merged.billedDown === stat.billedDown &&
+                merged.chargeExtraBytes === stat.chargeExtraBytes &&
+                merged.chargeDiscountBytes === stat.chargeDiscountBytes &&
                 merged.total === stat.total &&
                 merged.expiryTime === stat.expiryTime &&
                 merged.enable === stat.enable

@@ -65,13 +65,17 @@ func (s *InboundService) AcceptGlobalTraffic(masterGuid string, traffics []*xray
 				continue
 			}
 			rows = append(rows, model.ClientGlobalTraffic{
-				MasterGuid:          masterGuid,
-				Email:               email,
-				Up:                  t.Up,
-				Down:                t.Down,
-				ChargeExtraBytes:    t.ChargeExtraBytes,
-				ChargeDiscountBytes: t.ChargeDiscountBytes,
-				UpdatedAt:           now,
+				MasterGuid:              masterGuid,
+				Email:                   email,
+				Up:                      t.Up,
+				Down:                    t.Down,
+				ChargeExtraBytes:        t.ChargeExtraBytes,
+				ChargeDiscountBytes:     t.ChargeDiscountBytes,
+				ChargeExtraUpBytes:      t.ChargeExtraUpBytes,
+				ChargeExtraDownBytes:    t.ChargeExtraDownBytes,
+				ChargeDiscountUpBytes:   t.ChargeDiscountUpBytes,
+				ChargeDiscountDownBytes: t.ChargeDiscountDownBytes,
+				UpdatedAt:               now,
 			})
 		}
 
@@ -79,7 +83,7 @@ func (s *InboundService) AcceptGlobalTraffic(masterGuid string, traffics []*xray
 			for _, batch := range chunkGlobalRows(rows, 200) {
 				if err := tx.Clauses(clause.OnConflict{
 					Columns:   []clause.Column{{Name: "master_guid"}, {Name: "email"}},
-					DoUpdates: clause.AssignmentColumns([]string{"up", "down", "charge_extra_bytes", "charge_discount_bytes", "updated_at"}),
+					DoUpdates: clause.AssignmentColumns([]string{"up", "down", "charge_extra_bytes", "charge_discount_bytes", "charge_extra_up_bytes", "charge_extra_down_bytes", "charge_discount_up_bytes", "charge_discount_down_bytes", "updated_at"}),
 				}).Create(&batch).Error; err != nil {
 					return err
 				}
@@ -151,6 +155,18 @@ func overlayGlobalTraffic(db *gorm.DB, rows []*xray.ClientTraffic) {
 				}
 				if globals[i].ChargeDiscountBytes > r.ChargeDiscountBytes {
 					r.ChargeDiscountBytes = globals[i].ChargeDiscountBytes
+				}
+				if globals[i].ChargeExtraUpBytes > r.ChargeExtraUpBytes {
+					r.ChargeExtraUpBytes = globals[i].ChargeExtraUpBytes
+				}
+				if globals[i].ChargeExtraDownBytes > r.ChargeExtraDownBytes {
+					r.ChargeExtraDownBytes = globals[i].ChargeExtraDownBytes
+				}
+				if globals[i].ChargeDiscountUpBytes > r.ChargeDiscountUpBytes {
+					r.ChargeDiscountUpBytes = globals[i].ChargeDiscountUpBytes
+				}
+				if globals[i].ChargeDiscountDownBytes > r.ChargeDiscountDownBytes {
+					r.ChargeDiscountDownBytes = globals[i].ChargeDiscountDownBytes
 				}
 			}
 		}

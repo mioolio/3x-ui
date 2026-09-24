@@ -58,6 +58,9 @@ func TestMtprotoFinalSampleUsesRunningSidecarPolicy(t *testing.T) {
 	if len(global) != 1 || global[0].ChargeExtraDelta != 10 || global[0].ChargeDiscountDelta != 0 {
 		t.Fatalf("final sample used new desired factor instead of running sidecar: %+v", global)
 	}
+	if global[0].ChargeExtraUpDelta != 7 || global[0].ChargeExtraDownDelta != 3 {
+		t.Fatalf("final sample lost directional bill: %+v", global[0])
+	}
 	if len(windows) != 1 || windows[0].Up != 7 || windows[0].Down != 3 ||
 		windows[0].ChargeExtraDelta != 10 || !windows[0].ChargeCountersSeen {
 		t.Fatalf("final sample lost per-inbound window bytes: %+v", windows)
@@ -90,6 +93,10 @@ func TestMtprotoTrafficRowsAggregateSharedEmailButKeepInboundWindows(t *testing.
 	if len(global) != 1 || global[0].Up != 80 || global[0].Down != 70 ||
 		global[0].ChargeExtraDelta != 50 || global[0].ChargeDiscountDelta != 99 {
 		t.Fatalf("same email must have one correctly billed DB row: %+v", global)
+	}
+	if global[0].ChargeExtraUpDelta != 20 || global[0].ChargeExtraDownDelta != 30 ||
+		global[0].ChargeDiscountUpDelta+global[0].ChargeDiscountDownDelta != 99 {
+		t.Fatalf("same email directional bill = %+v", global[0])
 	}
 	if len(perInbound) != 2 || perInbound[0].Tag != first.Tag || perInbound[1].Tag != second.Tag {
 		t.Fatalf("per-inbound window attribution was merged away: %+v", perInbound)

@@ -17,5 +17,6 @@ func (s *SubService) subscriptionUserinfo(traffic xray.ClientTraffic) string {
 			expire--
 		}
 	}
-	return fmt.Sprintf("upload=%d; download=%d; total=%d; expire=%d", traffic.Up, traffic.Down, traffic.Total, expire)
+	billedUp, billedDown := traffic.BilledUsage()
+	return fmt.Sprintf("upload=%d; download=%d; total=%d; expire=%d", billedUp, billedDown, traffic.Total, expire)
 }

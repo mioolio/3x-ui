@@ -107,6 +107,37 @@ func TestTwoNodesShareEmail_SumsCorrectly(t *testing.T) {
 	assertUpDown(t, readTraffic(t, db, email), 110, 110, "after both nodes grow — deltas (50+60) accrue")
 }
 
+func TestNodeDirectionalChargeSyncIsDeltaBased(t *testing.T) {
+	db := initTrafficTestDB(t)
+	createNodeInbound(t, db, 1, "bill-in", 41003)
+	svc := &InboundService{}
+	email := "charged-node@x"
+	syncNode(t, svc, 1, "bill-in", xray.ClientTraffic{Email: email, Enable: true})
+	first := xray.ClientTraffic{Email: email, Enable: true, Up: 100, Down: 200,
+		ChargeExtraBytes: 9_800, ChargeExtraDownBytes: 9_800}
+	syncNode(t, svc, 1, "bill-in", first)
+	syncNode(t, svc, 1, "bill-in", first)
+	got := readTraffic(t, db, email)
+	if got.Up != 100 || got.Down != 200 || got.ChargeExtraBytes != 9_800 || got.ChargeExtraDownBytes != 9_800 {
+		t.Fatalf("node snapshot was duplicated or lost: %+v", got)
+	}
+	if up, down := got.BilledUsage(); up != 100 || down != 10_000 {
+		t.Fatalf("50x directions %d/%d", up, down)
+	}
+	second := first
+	second.Up = 200
+	second.ChargeDiscountBytes = 99
+	second.ChargeDiscountUpBytes = 99
+	syncNode(t, svc, 1, "bill-in", second)
+	got = readTraffic(t, db, email)
+	if got.ChargeDiscountBytes != 99 || got.ChargeDiscountUpBytes != 99 {
+		t.Fatalf("node discount not synchronized: %+v", got)
+	}
+	if up, down := got.BilledUsage(); up != 101 || down != 10_000 {
+		t.Fatalf("mixed 50x/0.01x directions %d/%d", up, down)
+	}
+}
+
 func TestSingleNode_MirrorsCorrectly(t *testing.T) {
 	db := initTrafficTestDB(t)
 	createNodeInbound(t, db, 1, "n1-in", 41001)

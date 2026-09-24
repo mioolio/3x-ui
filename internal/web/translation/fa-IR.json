@@ -321,6 +321,7 @@
     "inbounds": {
       "totalDownUp": "دریافت/ارسال کل",
       "totalUsage": "‌‌‌مصرف کل",
+      "actualTransfer": "انتقال واقعی",
       "inboundCount": "کل ورودی‌ها",
       "operate": "منو",
       "enable": "فعال",

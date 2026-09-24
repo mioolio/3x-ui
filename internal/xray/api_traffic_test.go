@@ -213,7 +213,9 @@ func TestGetTrafficKeepsExactChargeByInbound(t *testing.T) {
 		t.Fatal(err)
 	}
 	alice := clientTrafficByEmail(t, global)["alice"]
-	if alice == nil || alice.Up != 100 || alice.Down != 50 || alice.ChargeExtraDelta != 4900 || alice.ChargeDiscountDelta != 49 {
+	if alice == nil || alice.Up != 100 || alice.Down != 50 || alice.ChargeExtraDelta != 4900 || alice.ChargeDiscountDelta != 49 ||
+		alice.ChargeExtraUpDelta != 4900 || alice.ChargeExtraDownDelta != 0 ||
+		alice.ChargeDiscountUpDelta != 0 || alice.ChargeDiscountDownDelta != 49 {
 		t.Fatalf("global delta = %+v", alice)
 	}
 	byTag := make(map[string]*InboundClientTraffic)

@@ -1,5 +1,11 @@
 package xray
 
+import (
+	"encoding/json"
+	"math"
+	"math/big"
+)
+
 // InboundClientTraffic is the traffic delta for one authenticated client on
 // one inbound, emitted by the bundled Xray dispatcher.
 type InboundClientTraffic struct {
@@ -32,10 +38,21 @@ type ClientTraffic struct {
 	// ChargeDiscountBytes is a nonnegative cumulative allowance credit from
 	// an inbound whose traffic multiplier is below 1x.
 	ChargeDiscountBytes int64 `json:"chargeDiscountBytes" gorm:"column:charge_discount_bytes;default:0"`
+	// Directional charge counters preserve the exact uplink/downlink bill from
+	// new samples. Older aggregate charges are allocated proportionally once
+	// during database migration; their original direction cannot be recovered.
+	ChargeExtraUpBytes      int64 `json:"chargeExtraUpBytes" gorm:"column:charge_extra_up_bytes;default:0"`
+	ChargeExtraDownBytes    int64 `json:"chargeExtraDownBytes" gorm:"column:charge_extra_down_bytes;default:0"`
+	ChargeDiscountUpBytes   int64 `json:"chargeDiscountUpBytes" gorm:"column:charge_discount_up_bytes;default:0"`
+	ChargeDiscountDownBytes int64 `json:"chargeDiscountDownBytes" gorm:"column:charge_discount_down_bytes;default:0"`
 	// ChargeExtraDelta is populated only by the Xray stats poll. It is never
 	// stored directly; AddTraffic accumulates it into ChargeExtraBytes.
-	ChargeExtraDelta    int64 `json:"-" gorm:"-"`
-	ChargeDiscountDelta int64 `json:"-" gorm:"-"`
+	ChargeExtraDelta        int64 `json:"-" gorm:"-"`
+	ChargeDiscountDelta     int64 `json:"-" gorm:"-"`
+	ChargeExtraUpDelta      int64 `json:"-" gorm:"-"`
+	ChargeExtraDownDelta    int64 `json:"-" gorm:"-"`
+	ChargeDiscountUpDelta   int64 `json:"-" gorm:"-"`
+	ChargeDiscountDownDelta int64 `json:"-" gorm:"-"`
 	// A grace allowance starts at the paid expiry. The captured physical usage
 	// is durable so a panel restart cannot replenish the grace allowance.
 	GraceBaselineBytes  int64 `json:"-" gorm:"column:grace_baseline_bytes;default:0"`
@@ -53,4 +70,70 @@ type ClientTraffic struct {
 	ResetCount   int   `json:"resetCount" form:"resetCount" gorm:"default:0" example:"0"`
 	LastOnline   int64 `json:"lastOnline" form:"lastOnline" gorm:"default:0" example:"1735680000000"`
 	LastSubFetch int64 `json:"lastSubFetch" form:"lastSubFetch" gorm:"default:0" example:"1735680000000"`
+}
+
+// AllocateLegacyCharge assigns an old undirected charge by its physical
+// uplink share. big.Int avoids overflow when a high multiplier makes the
+// charge much larger than the physical traffic. The downlink gets the exact
+// remainder so migration never changes the amount deducted from the quota.
+func AllocateLegacyCharge(charge, up, down int64) (int64, int64) {
+	charge, up, down = max(charge, 0), max(up, 0), max(down, 0)
+	if charge == 0 {
+		return 0, 0
+	}
+	if up == 0 && down == 0 {
+		return 0, charge
+	}
+	numerator := new(big.Int).Mul(big.NewInt(charge), big.NewInt(up))
+	denominator := new(big.Int).Add(big.NewInt(up), big.NewInt(down))
+	upCharge := new(big.Int).Quo(numerator, denominator).Int64()
+	return upCharge, charge - upCharge
+}
+
+func saturatingTrafficAdd(a, b int64) int64 {
+	a, b = max(a, 0), max(b, 0)
+	if a > math.MaxInt64-b {
+		return math.MaxInt64
+	}
+	return a + b
+}
+
+func unallocatedCharge(total, known int64) int64 {
+	total, known = max(total, 0), max(known, 0)
+	if total <= known {
+		return 0
+	}
+	return total - known
+}
+
+// BilledUsage returns quota-valued upload and download. A legacy row with
+// aggregate-only charges uses proportional allocation until its migration or
+// first write. The final adjustment preserves the existing total charge even
+// for malformed or saturated historical counters.
+func (t ClientTraffic) BilledUsage() (int64, int64) {
+	physicalUp, physicalDown := max(t.Up, 0), max(t.Down, 0)
+	total := saturatingTrafficAdd(physicalUp, physicalDown)
+	total = saturatingTrafficAdd(total, t.ChargeExtraBytes)
+	total = max(0, total-max(t.ChargeDiscountBytes, 0))
+	knownExtra := saturatingTrafficAdd(t.ChargeExtraUpBytes, t.ChargeExtraDownBytes)
+	knownDiscount := saturatingTrafficAdd(t.ChargeDiscountUpBytes, t.ChargeDiscountDownBytes)
+	legacyExtraUp, _ := AllocateLegacyCharge(unallocatedCharge(t.ChargeExtraBytes, knownExtra), physicalUp, physicalDown)
+	legacyDiscountUp, _ := AllocateLegacyCharge(unallocatedCharge(t.ChargeDiscountBytes, knownDiscount), physicalUp, physicalDown)
+	up := saturatingTrafficAdd(physicalUp, saturatingTrafficAdd(t.ChargeExtraUpBytes, legacyExtraUp))
+	up = max(0, up-saturatingTrafficAdd(t.ChargeDiscountUpBytes, legacyDiscountUp))
+	up = min(up, total)
+	return up, total - up
+}
+
+// MarshalJSON adds the account-facing billed directions while retaining the
+// physical counters for diagnostics and speed/capacity monitoring. Computing
+// at serialization time also handles global traffic overlays correctly.
+func (t ClientTraffic) MarshalJSON() ([]byte, error) {
+	type alias ClientTraffic
+	up, down := t.BilledUsage()
+	return json.Marshal(struct {
+		alias
+		BilledUp   int64 `json:"billedUp"`
+		BilledDown int64 `json:"billedDown"`
+	}{alias(t), up, down})
 }

@@ -321,6 +321,7 @@
     "inbounds": {
       "totalDownUp": "Toplam Gönderilen/Alınan",
       "totalUsage": "Toplam Kullanım",
+      "actualTransfer": "Gerçek aktarım",
       "inboundCount": "Toplam Gelen Bağlantı",
       "operate": "Menü",
       "enable": "Etkin",

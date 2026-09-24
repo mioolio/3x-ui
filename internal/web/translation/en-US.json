@@ -321,6 +321,7 @@
     "inbounds": {
       "totalDownUp": "Total Sent/Received",
       "totalUsage": "Total Usage",
+      "actualTransfer": "Actual transfer",
       "inboundCount": "Total Inbounds",
       "operate": "Menu",
       "enable": "Enabled",

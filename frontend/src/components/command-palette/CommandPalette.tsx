@@ -37,6 +37,7 @@ import {
 } from '@ant-design/icons';
 
 import { ClipboardManager, HttpUtil, SizeFormatter } from '@/utils';
+import { chargedTrafficBytes } from '@/lib/clients/traffic-display';
 import { activateOnKey } from '@/utils/a11y';
 import { useInboundOptions } from '@/api/queries/useInboundOptions';
 import { useAllSettings } from '@/api/queries/useAllSettings';
@@ -247,10 +248,8 @@ export default function CommandPalette() {
     const trimmed = query.trim();
     if (trimmed.length > 0 && clientSearch.query === trimmed && clientSearch.items.length > 0) {
       clientSearch.items.forEach((c) => {
-        const up = Number(c.traffic?.up || 0);
-        const down = Number(c.traffic?.down || 0);
         const total = Number(c.traffic?.total || c.totalGB || 0);
-        const trafficUsed = SizeFormatter.sizeFormat(up + down);
+        const trafficUsed = SizeFormatter.sizeFormat(chargedTrafficBytes(c.traffic || {}));
         const trafficTotal = total > 0 ? SizeFormatter.sizeFormat(total) : '∞';
         const isOnline = c.enable !== false;
 

@@ -22,6 +22,8 @@ interface SubPageData {
   announce?: string;
   downloadByte?: string | number;
   uploadByte?: string | number;
+  billedDownByte?: string | number;
+  billedUpByte?: string | number;
   usedByte?: string | number;
   windowQuota?: SubWindowStatus | null;
   windowQuotas?: SubAccountWindowQuota[];

@@ -111,7 +111,7 @@ export default function InboundStatsModal({
             </div>
           )}
           <div className="stat-row">
-            <span className="stat-label">{t('pages.inbounds.traffic')}</span>
+            <span className="stat-label">{t('pages.inbounds.actualTransfer')}</span>
             <Tag color={ColorUtils.usageColor(record.up + record.down, trafficDiff, record.total)}>
               {SizeFormatter.sizeFormat(record.up + record.down)} /{' '}
               {record.total > 0 ? SizeFormatter.sizeFormat(record.total) : <InfinityIcon />}

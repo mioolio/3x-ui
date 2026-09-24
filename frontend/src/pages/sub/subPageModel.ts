@@ -79,6 +79,25 @@ export function formatQuotaBytes(bytes: number, lang: string): string {
   return `${new Intl.NumberFormat(lang, { maximumFractionDigits: 2 }).format(safe / unit)} ${unit === 1024 ** 3 ? 'GB' : 'MB'}`;
 }
 
+// The public API reports directional quota debits separately from physical
+// transfer counters. Keep the same units as the server's traffic formatter.
+export function formatBilledTrafficBytes(
+  billedBytes: string | number | null | undefined,
+  legacyDisplay: string | undefined,
+): string {
+  const fallback = legacyDisplay || '0';
+  if (billedBytes == null) return fallback;
+  let amount = Number(billedBytes);
+  if (!Number.isFinite(amount) || amount < 0) return fallback;
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  let unit = 0;
+  while (amount >= 1024 && unit < units.length - 1) {
+    amount /= 1024;
+    unit++;
+  }
+  return `${amount.toFixed(2)}${units[unit]}`;
+}
+
 export function formatMaximumKbps(kbps: number, lang: string): string {
   if (!Number.isFinite(kbps) || kbps <= 0) return '∞';
   const unit = kbps >= 1000 ? 1000 : 1;

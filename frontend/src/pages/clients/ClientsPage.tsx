@@ -1170,6 +1170,8 @@ export default function ClientsPage() {
           <ClientTrafficCell
             up={record.traffic?.up}
             down={record.traffic?.down}
+            billedUp={record.traffic?.billedUp}
+            billedDown={record.traffic?.billedDown}
             chargeExtraBytes={record.traffic?.chargeExtraBytes}
             chargeDiscountBytes={record.traffic?.chargeDiscountBytes}
             total={record.totalGB}
@@ -1850,6 +1852,8 @@ export default function ClientsPage() {
                                     compact
                                     up={row.traffic?.up}
                                     down={row.traffic?.down}
+                                    billedUp={row.traffic?.billedUp}
+                                    billedDown={row.traffic?.billedDown}
                                     chargeExtraBytes={row.traffic?.chargeExtraBytes}
                                     chargeDiscountBytes={row.traffic?.chargeDiscountBytes}
                                     total={row.totalGB}

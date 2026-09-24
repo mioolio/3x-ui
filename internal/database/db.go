@@ -159,6 +159,9 @@ func initModels() error {
 	if err := repairOverflowedTrafficCounters(); err != nil {
 		return err
 	}
+	if err := backfillDirectionalCharges(); err != nil {
+		return err
+	}
 	if err := dedupeInboundSettingsClients(); err != nil {
 		return err
 	}
@@ -1092,10 +1095,11 @@ func repairOverflowedTrafficCounters() error {
 		table   string
 		columns []string
 	}{
-		{"client_traffics", []string{"up", "down"}},
+		{"client_traffics", []string{"up", "down", "charge_extra_bytes", "charge_discount_bytes", "charge_extra_up_bytes", "charge_extra_down_bytes", "charge_discount_up_bytes", "charge_discount_down_bytes"}},
 		{"inbounds", []string{"up", "down"}},
 		{"outbound_traffics", []string{"up", "down", "total"}},
-		{"node_client_traffics", []string{"up", "down"}},
+		{"node_client_traffics", []string{"up", "down", "charge_extra_bytes", "charge_discount_bytes", "charge_extra_up_bytes", "charge_extra_down_bytes", "charge_discount_up_bytes", "charge_discount_down_bytes"}},
+		{"client_global_traffics", []string{"up", "down", "charge_extra_bytes", "charge_discount_bytes", "charge_extra_up_bytes", "charge_extra_down_bytes", "charge_discount_up_bytes", "charge_discount_down_bytes"}},
 	}
 	for _, target := range targets {
 		for _, col := range target.columns {

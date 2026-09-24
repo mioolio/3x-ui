@@ -387,7 +387,7 @@ export function useInboundColumns({
         },
       },
       {
-        title: t('pages.inbounds.traffic'),
+        title: t('pages.inbounds.actualTransfer'),
         key: 'traffic',
         align: 'center',
         width: 140,

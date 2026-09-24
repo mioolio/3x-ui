@@ -321,6 +321,7 @@
     "inbounds": {
       "totalDownUp": "إجمالي المرسل/المستقبل",
       "totalUsage": "إجمالي الاستخدام",
+      "actualTransfer": "النقل الفعلي",
       "inboundCount": "عدد الإدخالات",
       "operate": "القائمة",
       "enable": "مفعل",

@@ -17,6 +17,7 @@ import {
   preferPublicHost,
 } from '@/lib/xray/inbound-link';
 import { inboundFromDb } from '@/lib/xray/inbound-from-db';
+import { billedTrafficDirections, chargedTrafficBytes } from '@/lib/clients/traffic-display';
 import { withMtprotoHostEndpoints } from '@/lib/hosts/host-link';
 
 import {
@@ -266,7 +267,7 @@ export default function InboundInfoModal({
   const isDepleted = useMemo(() => {
     if (!clientStats || !clientSettings) return false;
     const total = clientStats.total ?? 0;
-    const used = (clientStats.up ?? 0) + (clientStats.down ?? 0);
+    const used = chargedTrafficBytes(clientStats);
     if (total > 0 && used >= total) return true;
     const expiry = clientSettings.expiryTime ?? 0;
     if (expiry > 0 && now >= expiry) return true;
@@ -275,7 +276,7 @@ export default function InboundInfoModal({
 
   const remainingStats = useMemo(() => {
     if (!clientStats || !clientSettings) return '-';
-    const remained = clientStats.total - clientStats.up - clientStats.down;
+    const remained = clientStats.total - chargedTrafficBytes(clientStats);
     return remained > 0 ? SizeFormatter.sizeFormat(remained) : '-';
   }, [clientStats, clientSettings]);
 
@@ -382,11 +383,11 @@ export default function InboundInfoModal({
               <td>{t('usage')}</td>
               <td>
                 <Tag color="green">
-                  {SizeFormatter.sizeFormat(clientStats.up + clientStats.down)}
+                  {SizeFormatter.sizeFormat(chargedTrafficBytes(clientStats))}
                 </Tag>
                 <Tag>
-                  ↑ {SizeFormatter.sizeFormat(clientStats.up)} /{' '}
-                  {SizeFormatter.sizeFormat(clientStats.down)} ↓
+                  ↑ {SizeFormatter.sizeFormat(billedTrafficDirections(clientStats).up)} /{' '}
+                  {SizeFormatter.sizeFormat(billedTrafficDirections(clientStats).down)} ↓
                 </Tag>
               </td>
             </tr>

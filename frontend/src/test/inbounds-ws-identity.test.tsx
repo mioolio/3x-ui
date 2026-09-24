@@ -104,4 +104,26 @@ describe('inbound websocket merges keep unchanged state', () => {
 
     expect(result.current.clientCount).toBe(rollup);
   });
+
+  it('marks an inbound client depleted when billed usage exhausts its quota', async () => {
+    const { result } = await renderInbounds();
+    act(() =>
+      result.current.applyClientStatsEvent({
+        clients: [
+          {
+            email: 'c1@x',
+            up: 1,
+            down: 2,
+            billedUp: 50,
+            billedDown: 100,
+            total: 100,
+            expiryTime: 0,
+            enable: true,
+          },
+        ],
+      }),
+    );
+    expect(result.current.dbInbounds[0].clientStats?.[0]?.billedDown).toBe(100);
+    expect(result.current.clientCount[1].depleted).toContain('c1@x');
+  });
 });

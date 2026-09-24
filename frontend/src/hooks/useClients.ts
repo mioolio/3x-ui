@@ -787,6 +787,8 @@ export function useClients(options: UseClientsOptions = {}) {
           const merged: ClientTraffic = { ...(row.traffic || {}) };
           if (typeof upd.up === 'number') merged.up = upd.up;
           if (typeof upd.down === 'number') merged.down = upd.down;
+          if (typeof upd.billedUp === 'number') merged.billedUp = upd.billedUp;
+          if (typeof upd.billedDown === 'number') merged.billedDown = upd.billedDown;
           if (typeof upd.chargeExtraBytes === 'number')
             merged.chargeExtraBytes = upd.chargeExtraBytes;
           if (typeof upd.chargeDiscountBytes === 'number')

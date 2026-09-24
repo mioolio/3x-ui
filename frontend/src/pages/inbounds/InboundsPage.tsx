@@ -760,7 +760,7 @@ export default function InboundsPage() {
                       <Row gutter={[16, 12]}>
                         <Col xs={12} sm={12} md={8}>
                           <Statistic
-                            title={t('pages.inbounds.totalDownUp')}
+                            title={`${t('pages.inbounds.totalDownUp')} · ${t('pages.inbounds.actualTransfer')}`}
                             value={0}
                             formatter={() => (
                               <span>
@@ -773,7 +773,7 @@ export default function InboundsPage() {
                         </Col>
                         <Col xs={12} sm={12} md={8}>
                           <Statistic
-                            title={t('pages.inbounds.totalUsage')}
+                            title={t('pages.inbounds.actualTransfer')}
                             value={SizeFormatter.sizeFormat(totals.up + totals.down)}
                             prefix={<PieChartOutlined />}
                           />

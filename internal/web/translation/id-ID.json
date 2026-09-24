@@ -321,6 +321,7 @@
     "inbounds": {
       "totalDownUp": "Total Terkirim/Diterima",
       "totalUsage": "Penggunaan Total",
+      "actualTransfer": "Transfer aktual",
       "inboundCount": "Total Masuk",
       "operate": "Menu",
       "enable": "Aktifkan",
