@@ -10,9 +10,9 @@ const TrafficMax = int64(9_000_000_000_000_000_000)
 
 func ClampedAddExpr(col string) string {
 	if IsPostgres() {
-		return fmt.Sprintf("LEAST(%s + ?, %d)", col, TrafficMax)
+		return fmt.Sprintf("LEAST(%s + LEAST(?, %d - %s), %d)", col, TrafficMax, col, TrafficMax)
 	}
-	return fmt.Sprintf("MIN(%s + ?, %d)", col, TrafficMax)
+	return fmt.Sprintf("MIN(%s + MIN(?, %d - %s), %d)", col, TrafficMax, col, TrafficMax)
 }
 
 func JSONClientsFromInbound() string {

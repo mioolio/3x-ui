@@ -1,6 +1,15 @@
 const DAY_MS = 86_400_000;
 
-export type SubStatus = 'active' | 'unlimited' | 'expired' | 'depleted' | 'disabled';
+export type SubStatus =
+  | 'active'
+  | 'unlimited'
+  | 'expired'
+  | 'depleted'
+  | 'disabled'
+  | 'grace'
+  | 'throttled'
+  | 'blocked'
+  | 'mixed';
 
 export interface SubUsage {
   enabled: boolean;
@@ -17,6 +26,21 @@ export function resolveSubStatus(sub: SubUsage, now: number): SubStatus {
   return 'active';
 }
 
+export function resolvePublicSubStatus(
+  baseStatus: SubStatus,
+  publicState: 'active' | 'grace' | 'blocked' | 'mixed' | undefined,
+): SubStatus {
+  if (baseStatus === 'disabled') return 'disabled';
+  if (publicState === 'grace' || publicState === 'mixed') return publicState;
+  if (publicState === 'blocked') {
+    return baseStatus === 'expired' || baseStatus === 'depleted' ? baseStatus : 'blocked';
+  }
+  // A server-confirmed active state can keep a depleted allowance usable under
+  // its configured policy. An old active snapshot cannot override a deadline.
+  if (publicState === 'active' && baseStatus === 'depleted') return 'active';
+  return baseStatus;
+}
+
 export function daysUntil(expireMs: number, now: number): number | null {
   if (expireMs <= 0) return null;
   return Math.max(0, Math.ceil((expireMs - now) / DAY_MS));
@@ -26,6 +50,44 @@ export function usagePercent(usedByte: number, totalByte: number): number {
   if (totalByte <= 0) return 0;
   const pct = (usedByte / totalByte) * 100;
   return Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
+}
+
+export function minutesUntil(resetAt: number, now: number): number | null {
+  if (!Number.isFinite(resetAt) || resetAt <= 0) return null;
+  return Math.max(0, Math.ceil((resetAt - now) / 60_000));
+}
+
+// The page is a server snapshot. Once a quota window or the account deadline
+// passes, reload that snapshot so the state and next reset time stay truthful.
+export function hasCrossedPageBoundary(
+  openedAt: number,
+  now: number,
+  expireMs: number,
+  publicState: string | undefined,
+  windows: ReadonlyArray<{ resetAt: number }>,
+  accountExpiries: ReadonlyArray<number> = [],
+): boolean {
+  if (now <= openedAt) return false;
+  if (publicState === 'active' && expireMs > openedAt && expireMs <= now) return true;
+  if (accountExpiries.some((expiry) => expiry > openedAt && expiry <= now)) return true;
+  return windows.some(({ resetAt }) => resetAt > openedAt && resetAt <= now);
+}
+
+export function formatQuotaBytes(bytes: number, lang: string): string {
+  const safe = Math.max(0, Number.isFinite(bytes) ? bytes : 0);
+  const unit = safe >= 1024 ** 3 ? 1024 ** 3 : 1024 ** 2;
+  return `${new Intl.NumberFormat(lang, { maximumFractionDigits: 2 }).format(safe / unit)} ${unit === 1024 ** 3 ? 'GB' : 'MB'}`;
+}
+
+export function formatMaximumKbps(kbps: number, lang: string): string {
+  if (!Number.isFinite(kbps) || kbps <= 0) return '∞';
+  const unit = kbps >= 1000 ? 1000 : 1;
+  return `${new Intl.NumberFormat(lang, { maximumFractionDigits: 2 }).format(kbps / unit)} ${unit === 1000 ? 'Mbps' : 'Kbps'}`;
+}
+
+export function formatTrafficMultiplier(bps: number, lang: string): string {
+  const factor = (Number.isFinite(bps) && bps > 0 ? bps : 10_000) / 10_000;
+  return `${new Intl.NumberFormat(lang, { maximumFractionDigits: 2 }).format(factor)}x`;
 }
 
 export type AppPlatform = 'android' | 'ios';

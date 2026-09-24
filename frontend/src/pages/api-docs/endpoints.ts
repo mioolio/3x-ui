@@ -1139,6 +1139,80 @@ export const sections: readonly Section[] = [
           '{\n  "success": true,\n  "obj": [\n    {\n      "client": { "id": 1, "email": "alice@example.com", ... },\n      "inboundIds": [3, 5],\n      "externalLinks": [],\n      "usedTraffic": 1048576\n    }\n  ]\n}',
       },
       {
+        method: 'GET',
+        path: '/panel/api/clients/:email/rates',
+        summary: 'Get per-inbound client speed limits, in Kbps. Zero means unlimited.',
+        params: [{ name: 'email', in: 'path', type: 'string', desc: 'Client email.' }],
+        response: '{\n  "success": true,\n  "obj": { "3": 10000, "5": 0 }\n}',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/clients/:email/rates',
+        summary:
+          'Set per-inbound client speed limits. An inbound must already be attached to this client.',
+        params: [{ name: 'email', in: 'path', type: 'string', desc: 'Client email.' }],
+        body: '{\n  "rates": { "3": 10000, "5": 0 }\n}',
+        response: '{\n  "success": true\n}',
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/clients/:email/directionalRates',
+        summary: 'Get upload and download speed limits in Kbps for each attached inbound.',
+        params: [{ name: 'email', in: 'path', type: 'string', desc: 'Client email.' }],
+        response:
+          '{\n  "success": true,\n  "obj": { "3": { "upKbps": 1000, "downKbps": 5000 } }\n}',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/clients/inbound/:id/linkPolicies',
+        summary:
+          'Replace all client link policies for one inbound. Used when a master reconciles a node; entries carry the email, directional maximum speeds and optional window quota. An empty list clears existing link policies.',
+        params: [
+          { name: 'id', in: 'path', type: 'integer', desc: 'Inbound ID on the receiving panel.' },
+        ],
+        body: '{\n  "policies": [{ "email": "user1", "speedLimitUpKbps": 1000, "speedLimitDownKbps": 2000, "windowQuotaBytes": 10737418240, "windowHours": 2, "windowMode": "fixed" }]\n}',
+        response: '{\n  "success": true\n}',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/clients/:email/directionalRates',
+        summary:
+          'Set per-inbound upload and download limits. Each direction accepts 0 for unlimited.',
+        params: [{ name: 'email', in: 'path', type: 'string', desc: 'Client email.' }],
+        body: '{\n  "rates": { "3": { "upKbps": 1000, "downKbps": 5000 } }\n}',
+        response: '{\n  "success": true\n}',
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/clients/:email/windowQuotas',
+        summary: "Get each attached inbound's fixed or rolling quota and its exhaustion policy.",
+        params: [{ name: 'email', in: 'path', type: 'string', desc: 'Client email.' }],
+        response:
+          '{\n  "success": true,\n  "obj": { "3": { "quotaBytes": 10737418240, "hours": 2, "mode": "fixed", "windowExhaustAction": "throttle", "windowExhaustUpKbps": 512, "windowExhaustDownKbps": 2048, "windowOverageMultiplierBps": 20000 } }\n}',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/clients/:email/windowQuotas',
+        summary:
+          'Set per-inbound window quotas and optional exhaustion policies. Zero quotaBytes disables that inbound quota.',
+        description:
+          '`windowExhaustAction` is `stop` by default or `throttle`. Throttle requires positive upload and download Kbps. `windowOverageMultiplierBps` is 10000 for 1×, up to 1000000 for 100×; it deducts traffic allowance, not money. Omitted policy fields retain the current settings.',
+        params: [{ name: 'email', in: 'path', type: 'string', desc: 'Client email.' }],
+        body: '{\n  "quotas": { "3": { "quotaBytes": 10737418240, "hours": 2, "mode": "fixed", "windowExhaustAction": "throttle", "windowExhaustUpKbps": 512, "windowExhaustDownKbps": 2048, "windowOverageMultiplierBps": 20000 } }\n}',
+        response: '{\n  "success": true\n}',
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/clients/:email/windowStatus/:inboundId',
+        summary: 'Get live usage and remaining bytes for one attached inbound window quota.',
+        params: [
+          { name: 'email', in: 'path', type: 'string', desc: 'Client email.' },
+          { name: 'inboundId', in: 'path', type: 'integer', desc: 'Attached inbound ID.' },
+        ],
+        response:
+          '{\n  "success": true,\n  "obj": { "quotaBytes": 10737418240, "usedBytes": 1048576, "remainingBytes": 10736369664, "windowHours": 2, "windowMode": "fixed", "resetAt": 1767225600000 }\n}',
+      },
+      {
         method: 'POST',
         path: '/panel/api/clients/add',
         summary:
@@ -1150,7 +1224,7 @@ export const sections: readonly Section[] = [
             name: 'client',
             in: 'body (json)',
             type: 'object',
-            desc: 'Client fields: email, subId, id (uuid), password, auth, flow, totalGB, expiryTime, limitIp, limitHwid, tgId (numeric Telegram user ID, 0 = none), comment, enable. Protocol-specific: secret and adTag (mtproto), privateKey, publicKey, preSharedKey, allowedIPs and keepAlive (WireGuard).',
+            desc: 'Client fields: email, subId, id (uuid), password, auth, flow, totalGB, expiryTime, limitIp, limitHwid, tgId (numeric Telegram user ID, 0 = none), comment, enable. Directional speed: speedLimitUpKbps and speedLimitDownKbps. Overall/window quota policies: totalExhaustAction or windowExhaustAction (stop or throttle), matching *ExhaustUpKbps/*ExhaustDownKbps and *OverageMultiplierBps (10000 = 1×). Expiry grace: graceHours, graceUpKbps, graceDownKbps, graceQuotaBytes. Protocol-specific: secret and adTag (mtproto), privateKey, publicKey, preSharedKey, allowedIPs and keepAlive (WireGuard).',
           },
           {
             name: 'inboundIds',

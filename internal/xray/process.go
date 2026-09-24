@@ -41,6 +41,18 @@ func GetConfigPath() string {
 	return config.GetBinFolderPath() + "/config.json"
 }
 
+// GetRatePolicyPath is read by the bundled Xray dispatcher at runtime.
+func GetRatePolicyPath() string {
+	return config.GetBinFolderPath() + "/rate-policy.json"
+}
+
+func WriteRatePolicyFile(data []byte) error {
+	if err := os.MkdirAll(config.GetBinFolderPath(), 0o750); err != nil {
+		return err
+	}
+	return writeFileAtomic(GetRatePolicyPath(), data, 0o600)
+}
+
 // GetGeositePath returns the path to the geosite data file used by Xray.
 func GetGeositePath() string {
 	return config.GetBinFolderPath() + "/geosite.dat"
@@ -623,6 +635,7 @@ func (p *process) Start() (err error) {
 	}
 
 	cmd := exec.CommandContext(context.Background(), GetBinaryPath(), "-c", configPath)
+	cmd.Env = append(os.Environ(), "XRAY_PANEL_RATE_FILE="+GetRatePolicyPath())
 	cmd.Stdout = p.logWriter
 	cmd.Stderr = p.logWriter
 

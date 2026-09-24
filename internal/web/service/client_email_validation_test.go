@@ -23,6 +23,7 @@ func TestValidateClientEmail(t *testing.T) {
 		"tab\there",
 		"new\nline",
 		"\x7fdelete",
+		"mtproto-rate-42@loopback.invalid",
 	}
 	for _, email := range invalid {
 		if err := validateClientEmail(email); err == nil {

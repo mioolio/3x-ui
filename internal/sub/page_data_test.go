@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/util/common"
 	"github.com/mhsanaei/3x-ui/v3/internal/xray"
 )
 
@@ -65,5 +66,19 @@ func TestBuildPageData_IsOnlineFalseWithoutLiveConnections(t *testing.T) {
 
 	if page.IsOnline {
 		t.Fatal("IsOnline must be false when the subscription's client has no live connection")
+	}
+}
+
+func TestBuildPageData_UsesChargedAllowanceAfterNodeDiscount(t *testing.T) {
+	initSubDB(t)
+	page := (&SubService{}).BuildPageData("discount", "", xray.ClientTraffic{
+		Up: 1 << 30, Down: 1 << 30, ChargeExtraBytes: 1 << 30,
+		ChargeDiscountBytes: 2 << 30, Total: 4 << 30,
+	}, 0, nil, nil, "", "", "", "/", "", "")
+	if page.UsedByte != 1<<30 {
+		t.Fatalf("charged usage=%d, want 1 GiB after discount", page.UsedByte)
+	}
+	if page.Used != common.FormatTraffic(1<<30) || page.Remained != common.FormatTraffic(3<<30) {
+		t.Fatalf("display used/remaining=%q/%q, want 1 GiB/3 GiB", page.Used, page.Remained)
 	}
 }

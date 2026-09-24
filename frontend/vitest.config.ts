@@ -16,6 +16,7 @@ export default defineConfig({
   },
   test: {
     globals: false,
+    api: { host: '127.0.0.1' },
     // Keep jsdom-heavy form tests within the memory budget of local and CI runners.
     maxWorkers: 2,
     projects: [

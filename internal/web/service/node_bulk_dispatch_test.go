@@ -26,6 +26,8 @@ type fakeNodeRuntime struct {
 	updateInbound atomic.Int32
 	updateSubSort atomic.Int32
 	updateUser    atomic.Int32
+	resetCalls    atomic.Int32
+	resetErr      error
 }
 
 func (f *fakeNodeRuntime) Name() string { return "fake-node" }
@@ -75,7 +77,8 @@ func (f *fakeNodeRuntime) AddClient(context.Context, *model.Inbound, model.Clien
 }
 func (f *fakeNodeRuntime) RestartXray(context.Context) error { return nil }
 func (f *fakeNodeRuntime) ResetClientTraffic(context.Context, *model.Inbound, string) error {
-	return nil
+	f.resetCalls.Add(1)
+	return f.resetErr
 }
 func (f *fakeNodeRuntime) ResetInboundTraffic(context.Context, *model.Inbound) error { return nil }
 func (f *fakeNodeRuntime) ResetAllTraffics(context.Context) error                    { return nil }

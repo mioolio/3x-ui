@@ -13,6 +13,7 @@ import {
   Switch,
   Tabs,
   Tooltip,
+  Typography,
   message,
 } from 'antd';
 import { Controller, FormProvider, useForm, useWatch } from 'react-hook-form';
@@ -20,6 +21,11 @@ import { Controller, FormProvider, useForm, useWatch } from 'react-hook-form';
 import { HttpUtil, NumberFormatter, RandomUtil, SizeFormatter, Wireguard } from '@/utils';
 import type { RealityScanResult } from '@/generated/types';
 import { rawInboundToFormValues, formValuesToWirePayload } from '@/lib/xray/inbound-form-adapter';
+import {
+  MAX_TRAFFIC_MULTIPLIER_INPUT,
+  trafficMultiplierBpsToInput,
+  trafficMultiplierInputToBps,
+} from '@/lib/xray/traffic-multiplier';
 import { createDefaultInboundSettings } from '@/lib/xray/inbound-defaults';
 import { generateAwgObfuscation } from '@/lib/xray/amneziawg-obfuscation';
 import { composeInboundTag, isAutoInboundTag, type InboundTagInput } from '@/lib/xray/inbound-tag';
@@ -149,6 +155,12 @@ function firstRhfValidationIssue(
 }
 
 function tabForValidationPath(path: PropertyKey[]): string {
+  if (
+    path[0] === 'speedLimitUpKbps' ||
+    path[0] === 'speedLimitDownKbps' ||
+    path[0] === 'trafficMultiplierBps'
+  )
+    return 'traffic-policy';
   if (path[0] === 'settings') return 'protocol';
   if (path[0] === 'sniffing') return 'sniffing';
   if (path[0] === 'streamSettings') {
@@ -236,6 +248,10 @@ export default function InboundFormModal({
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<RealityScanResult | null>(null);
   const [activeTab, setActiveTab] = useState('basic');
+  const [speedUnits, setSpeedUnits] = useState<Record<'up' | 'down', 'Mbps' | 'Kbps'>>({
+    up: 'Mbps',
+    down: 'Mbps',
+  });
   const {
     fallbacks,
     fallbackChildOptions,
@@ -290,10 +306,13 @@ export default function InboundFormModal({
   const wSsNetwork = useWatch({ control, name: 'settings.network' });
   const wTunnelNetwork = useWatch({ control, name: 'settings.allowedNetwork' });
   const wTotal = (useWatch({ control, name: 'total' }) as number | undefined) ?? 0;
+  const wSpeedLimitUpKbps =
+    (useWatch({ control, name: 'speedLimitUpKbps' }) as number | undefined) ?? 0;
+  const wSpeedLimitDownKbps =
+    (useWatch({ control, name: 'speedLimitDownKbps' }) as number | undefined) ?? 0;
   const wExpiry = (useWatch({ control, name: 'expiryTime' }) as number | undefined) ?? 0;
   const trafficReset = useWatch({ control, name: 'trafficReset' }) ?? 'never';
-  const windowMinutes = useWatch({ control, name: 'windowMinutes' }) ?? 0;
-  const windowAction = useWatch({ control, name: 'windowAction' }) ?? '';
+  const trafficResetInterval = useWatch({ control, name: 'trafficResetInterval' }) ?? 1;
   const autoTagRef = useRef(true);
   const lastWrittenTagRef = useRef('');
   const currentTagInput = (): InboundTagInput => ({
@@ -443,6 +462,10 @@ export default function InboundFormModal({
     const initial =
       mode === 'edit' && dbInbound ? rawInboundToFormValues(dbInbound) : buildAddModeValues();
     methods.reset(initial);
+    setSpeedUnits({
+      up: initial.speedLimitUpKbps > 0 && initial.speedLimitUpKbps < 1000 ? 'Kbps' : 'Mbps',
+      down: initial.speedLimitDownKbps > 0 && initial.speedLimitDownKbps < 1000 ? 'Kbps' : 'Mbps',
+    });
     setScanResult(null);
     setActiveTab('basic');
     const initialTag = (initial.tag ?? '') as string;
@@ -556,6 +579,15 @@ export default function InboundFormModal({
     return () => sub.unsubscribe();
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, [mode, methods]);
+
+  // TUIC's sidecar meters aggregate UDP traffic and cannot attribute bytes to
+  // an authenticated client. Keep its inbound multiplier at the only value
+  // that leaves client allowances accurate, including when editing old rows.
+  useEffect(() => {
+    if (!open || protocol !== Protocols.TUIC) return;
+    if (Number(getV('trafficMultiplierBps')) !== 10000) setV('trafficMultiplierBps', 10000);
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [open, protocol]);
 
   const saveValues = async () => {
     /*
@@ -750,54 +782,25 @@ export default function InboundFormModal({
         />
       </FormField>
 
-      {trafficReset === 'monthly' && (
+      {['hourly', 'daily', 'monthly'].includes(trafficReset) && (
+        <FormField
+          name="trafficResetInterval"
+          label={t('pages.inbounds.trafficResetInterval', {
+            defaultValue: 'Reset every (number of selected units)',
+          })}
+          rules={{ validate: rhfZodValidate(InboundDbFieldsSchema.shape.trafficResetInterval) }}
+        >
+          <InputNumber min={1} max={10000} precision={0} />
+        </FormField>
+      )}
+
+      {trafficReset === 'monthly' && trafficResetInterval === 1 && (
         <FormField
           name="trafficResetDay"
           label={t('pages.inbounds.periodicTrafficResetDay')}
           rules={{ validate: rhfZodValidate(InboundDbFieldsSchema.shape.trafficResetDay) }}
         >
           <InputNumber min={1} max={31} />
-        </FormField>
-      )}
-
-      <FormField
-        name="windowQuotaGB"
-        label={labelWithHint(
-          t('pages.clients.windowQuotaGB'),
-          t('pages.clients.windowQuotaGBDesc'),
-        )}
-      >
-        <InputNumber min={0} step={0.1} style={{ width: '100%' }} />
-      </FormField>
-
-      <FormField
-        name="windowMinutes"
-        label={labelWithHint(
-          t('pages.clients.windowMinutes'),
-          t('pages.clients.windowMinutesDesc'),
-        )}
-      >
-        <InputNumber min={0} style={{ width: '100%' }} addonAfter="min" />
-      </FormField>
-
-      {windowMinutes > 0 && (
-        <FormField name="windowAction" label={t('pages.clients.windowAction')}>
-          <Select
-            options={[
-              { value: 'disable', label: t('pages.clients.bandwidthAction.disable') },
-              { value: 'throttle', label: t('pages.clients.bandwidthAction.throttle') },
-            ]}
-          />
-        </FormField>
-      )}
-
-      {windowMinutes > 0 && windowAction === 'throttle' && (
-        <FormField
-          name="windowSpeed"
-          label={t('pages.clients.windowSpeed')}
-          rules={{ validate: rhfZodValidate(InboundDbFieldsSchema.shape.windowSpeed) }}
-        >
-          <InputNumber min={0} style={{ width: '100%' }} addonAfter="Kbps" />
         </FormField>
       )}
 
@@ -816,6 +819,68 @@ export default function InboundFormModal({
     </>
   );
 
+  const trafficPolicyTab = (
+    <>
+      <Typography.Paragraph type="secondary">
+        {t('pages.inbounds.trafficPolicyHint')}
+      </Typography.Paragraph>
+      {(['up', 'down'] as const).map((direction) => {
+        const unit = speedUnits[direction];
+        const kbps = direction === 'up' ? wSpeedLimitUpKbps : wSpeedLimitDownKbps;
+        return (
+          <Form.Item
+            key={direction}
+            label={t(`pages.inbounds.speedLimit${direction === 'up' ? 'Up' : 'Down'}`)}
+            extra={t('pages.inbounds.inboundSpeedScopeHint')}
+          >
+            <InputNumber
+              value={kbps / (unit === 'Mbps' ? 1000 : 1)}
+              min={0}
+              max={unit === 'Mbps' ? 1000000 : 1000000000}
+              precision={unit === 'Mbps' ? 3 : 0}
+              onChange={(v) =>
+                setV(
+                  direction === 'up' ? 'speedLimitUpKbps' : 'speedLimitDownKbps',
+                  Math.round((Number(v) || 0) * (unit === 'Mbps' ? 1000 : 1)),
+                )
+              }
+              addonAfter={
+                <Select
+                  value={unit}
+                  options={[{ value: 'Mbps' }, { value: 'Kbps' }]}
+                  onChange={(next) => setSpeedUnits((prev) => ({ ...prev, [direction]: next }))}
+                  style={{ width: 92 }}
+                />
+              }
+            />
+          </Form.Item>
+        );
+      })}
+
+      <FormField
+        name="trafficMultiplierBps"
+        label={t('pages.inbounds.trafficMultiplier')}
+        tooltip={t('pages.inbounds.trafficMultiplierHint')}
+        extra={protocol === Protocols.TUIC ? t('pages.inbounds.tuicMultiplierFixed') : undefined}
+        transform={{
+          input: trafficMultiplierBpsToInput,
+          output: trafficMultiplierInputToBps,
+        }}
+        rules={{ validate: rhfZodValidate(InboundDbFieldsSchema.shape.trafficMultiplierBps) }}
+      >
+        <InputNumber<string>
+          stringMode
+          min="0.01"
+          max={MAX_TRAFFIC_MULTIPLIER_INPUT}
+          step="0.01"
+          precision={4}
+          addonAfter="×"
+          disabled={protocol === Protocols.TUIC}
+          style={{ width: '100%' }}
+        />
+      </FormField>
+    </>
+  );
   const fallbacksCard = (
     <FallbacksCard
       fallbacks={fallbacks}
@@ -1228,6 +1293,12 @@ export default function InboundFormModal({
                   key: 'advanced',
                   label: t('pages.xray.advancedTemplate'),
                   children: advancedTab,
+                  forceRender: true,
+                },
+                {
+                  key: 'traffic-policy',
+                  label: t('pages.inbounds.trafficPolicyTab'),
+                  children: trafficPolicyTab,
                   forceRender: true,
                 },
               ]}

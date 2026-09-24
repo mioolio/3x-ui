@@ -1,6 +1,7 @@
 package sub
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -26,6 +27,7 @@ import (
 	"github.com/mhsanaei/3x-ui/v3/internal/util/common"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/random"
 	wgutil "github.com/mhsanaei/3x-ui/v3/internal/util/wireguard"
+	"github.com/mhsanaei/3x-ui/v3/internal/web/runtime"
 	"github.com/mhsanaei/3x-ui/v3/internal/web/service"
 	"github.com/mhsanaei/3x-ui/v3/internal/xray"
 )
@@ -351,15 +353,34 @@ const (
 	infoNodeActive
 	infoNodeExpired
 	infoNodeDepleted
+	infoNodeDisabled
 )
 
 func (s *SubService) resolveInfoNodeRemark(subId string, uniqueEmails []string, traffic xray.ClientTraffic, hasEntries bool) (infoNodeMode, string) {
 	if !s.subInfoNodeEnable || !s.subscriptionBody {
 		return infoNodeNone, ""
 	}
+	// An info node uses one status and may replace every real link when it
+	// reports depletion. Accounts sharing a subscription ID have independent
+	// limits, so a single synthetic status cannot represent them safely.
+	if len(uniqueEmails) > 1 {
+		return infoNodeNone, ""
+	}
 	nowSec := time.Now().Unix()
 	isExpired := traffic.ExpiryTime > 0 && traffic.ExpiryTime/1000 <= nowSec
-	isDepleted := traffic.Total > 0 && (traffic.Up+traffic.Down) >= traffic.Total
+	isDepleted := traffic.Total > 0 && max(0, positiveSum(positiveSum(traffic.Up, traffic.Down), max(traffic.ChargeExtraBytes, 0))-max(traffic.ChargeDiscountBytes, 0)) >= traffic.Total
+	isDisabled := !traffic.Enable
+	if window := s.loadGlobalWindowQuota(subId); window != nil {
+		if policy := s.loadSubPolicyStatus(subId, traffic, window); policy != nil {
+			isExpired = isExpired && !policy.GraceActive
+			isDepleted = (policy.TotalExhausted && policy.TotalAction == "stop") ||
+				(policy.WindowExhausted && policy.WindowAction == "stop")
+			isDisabled = !traffic.Enable
+		}
+	} else if policy := s.loadSubPolicyStatus(subId, traffic, nil); policy != nil {
+		isExpired = isExpired && !policy.GraceActive
+		isDepleted = policy.TotalExhausted && policy.TotalAction == "stop"
+	}
 
 	primaryEmail := ""
 	if len(uniqueEmails) > 0 {
@@ -368,6 +389,18 @@ func (s *SubService) resolveInfoNodeRemark(subId string, uniqueEmails []string, 
 	ctx := remarkContext{
 		client: model.Client{Email: primaryEmail, SubID: subId},
 		stats:  traffic,
+	}
+
+	if isDepleted {
+		tmpl := s.subTrafficDepletedTemplate
+		if tmpl == "" {
+			tmpl = service.DefaultSubTrafficDepletedTemplate
+		}
+		remark := expandRemarkVars(tmpl, ctx)
+		if strings.TrimSpace(remark) == "" {
+			remark = "Traffic Depleted"
+		}
+		return infoNodeDepleted, remark
 	}
 
 	if isExpired {
@@ -382,16 +415,8 @@ func (s *SubService) resolveInfoNodeRemark(subId string, uniqueEmails []string, 
 		return infoNodeExpired, remark
 	}
 
-	if isDepleted {
-		tmpl := s.subTrafficDepletedTemplate
-		if tmpl == "" {
-			tmpl = service.DefaultSubTrafficDepletedTemplate
-		}
-		remark := expandRemarkVars(tmpl, ctx)
-		if strings.TrimSpace(remark) == "" {
-			remark = "Traffic Depleted"
-		}
-		return infoNodeDepleted, remark
+	if isDisabled {
+		return infoNodeDisabled, "Disabled"
 	}
 
 	if hasEntries {
@@ -481,7 +506,7 @@ func (s *SubService) getSubs(subId string) ([]string, []string, int64, xray.Clie
 
 	if mode, remark := s.resolveInfoNodeRemark(subId, uniqueEmails, traffic, len(result) > 0); mode != infoNodeNone {
 		dummyLink := fmt.Sprintf("socks://127.0.0.1:1080#%s", strings.ReplaceAll(url.QueryEscape(remark), "+", "%20"))
-		if mode == infoNodeExpired || mode == infoNodeDepleted {
+		if mode == infoNodeExpired || mode == infoNodeDepleted || mode == infoNodeDisabled {
 			return []string{dummyLink}, emails, lastOnline, traffic, nil
 		}
 		result = append([]string{dummyLink}, result...)
@@ -583,15 +608,8 @@ func (s *SubService) AggregateTrafficByEmails(emails []string) (xray.ClientTraff
 		if first {
 			agg.Up = ct.Up
 			agg.Down = ct.Down
-			agg.HistoryUp = ct.HistoryUp
-			agg.HistoryDown = ct.HistoryDown
-			// Fence state is per email; a sub spanning several emails shows the
-			// first row's clocks, which is the common single-client case.
-			agg.WindowUsed = ct.WindowUsed
-			agg.WindowStarted = ct.WindowStarted
-			agg.PeriodUsed = ct.PeriodUsed
-			agg.PeriodStarted = ct.PeriodStarted
-			agg.ThrottledSince = ct.ThrottledSince
+			agg.ChargeExtraBytes = ct.ChargeExtraBytes
+			agg.ChargeDiscountBytes = ct.ChargeDiscountBytes
 			agg.Total = total
 			agg.ExpiryTime = subscriptionExpiryFromClient(now, expiry)
 			agg.ResetDay = resetDay
@@ -600,8 +618,8 @@ func (s *SubService) AggregateTrafficByEmails(emails []string) (xray.ClientTraff
 		}
 		agg.Up += ct.Up
 		agg.Down += ct.Down
-		agg.HistoryUp += ct.HistoryUp
-		agg.HistoryDown += ct.HistoryDown
+		agg.ChargeExtraBytes += ct.ChargeExtraBytes
+		agg.ChargeDiscountBytes += ct.ChargeDiscountBytes
 		if resetDay != agg.ResetDay {
 			agg.ResetDay = 0
 		}
@@ -2948,9 +2966,8 @@ type PageData struct {
 	Datepicker    string
 	DownloadByte  int64
 	UploadByte    int64
+	UsedByte      int64
 	TotalByte     int64
-	HistoryByte   int64 // lifetime up+down across resets, for the sub page
-	Quota         QuotaInfo
 	SubUrl        string
 	SubJsonUrl    string
 	SubClashUrl   string
@@ -2959,6 +2976,321 @@ type PageData struct {
 	SubAnnounce   string
 	Result        []string
 	Emails        []string
+	WindowQuota   *service.WindowStatus
+	WindowQuotas  []AccountWindowQuota
+	AccountStates []AccountPublicStatus
+	Nodes         []NodeOverview
+	PublicState   string
+}
+
+// AccountPublicStatus exposes availability without revealing the traffic
+// strategy behind it. Shared subscription IDs must keep accounts distinct.
+type AccountPublicStatus struct {
+	AccountIndex int    `json:"accountIndex"`
+	State        string `json:"state"`
+	ExpiryMs     int64  `json:"expiryMs"`
+}
+
+func publicPolicyState(status *SubPolicyStatus) string {
+	if status == nil {
+		return ""
+	}
+	switch status.EffectiveState {
+	case "blocked", "grace":
+		return status.EffectiveState
+	default:
+		return "active"
+	}
+}
+
+func summarizeAccountStates(accounts []AccountPublicStatus) string {
+	if len(accounts) == 0 {
+		return ""
+	}
+	state := accounts[0].State
+	for _, account := range accounts[1:] {
+		if account.State != state {
+			return "mixed"
+		}
+	}
+	return state
+}
+
+func (s *SubService) loadAccountPublicStatuses(subID string, emails []string, windows []AccountWindowQuota) []AccountPublicStatus {
+	db := database.GetDB()
+	if db == nil || subID == "" || len(emails) == 0 {
+		return nil
+	}
+	unique := make(map[string]struct{}, len(emails))
+	for _, email := range emails {
+		if email != "" {
+			unique[email] = struct{}{}
+		}
+	}
+	if len(unique) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(unique))
+	for email := range unique {
+		keys = append(keys, email)
+	}
+	var clients []model.ClientRecord
+	if db.Where("sub_id = ?", subID).Order("id").Find(&clients).Error != nil || len(clients) == 0 {
+		return nil
+	}
+	var trafficRows []xray.ClientTraffic
+	if db.Where("email IN ?", keys).Find(&trafficRows).Error != nil {
+		return nil
+	}
+	trafficByEmail := make(map[string]xray.ClientTraffic, len(trafficRows))
+	for _, row := range trafficRows {
+		trafficByEmail[row.Email] = row
+	}
+	windowByIndex := make(map[int]*service.WindowStatus, len(windows))
+	for _, entry := range windows {
+		status := entry.Window
+		windowByIndex[entry.AccountIndex] = &status
+	}
+	accounts := make([]AccountPublicStatus, 0, len(clients))
+	for i, client := range clients {
+		if _, linked := unique[client.Email]; !linked {
+			continue
+		}
+		accountIndex := i + 1
+		state := publicPolicyState(clientPolicyStatus(client, trafficByEmail[client.Email], windowByIndex[accountIndex]))
+		accounts = append(accounts, AccountPublicStatus{AccountIndex: accountIndex, State: state, ExpiryMs: max(0, client.ExpiryTime)})
+	}
+	return accounts
+}
+
+// NodeOverview contains only the service terms a subscriber needs to choose
+// a node. Enforcement actions and overage rules stay on the server.
+type NodeOverview struct {
+	InboundId            int                   `json:"inboundId"`
+	AccountIndex         int                   `json:"accountIndex"`
+	Remark               string                `json:"remark"`
+	Protocol             string                `json:"protocol"`
+	MaxUpKbps            int64                 `json:"maxUpKbps"`
+	MaxDownKbps          int64                 `json:"maxDownKbps"`
+	TrafficMultiplierBps int                   `json:"trafficMultiplierBps"`
+	UsageTracked         bool                  `json:"usageTracked"`
+	WindowConfigured     bool                  `json:"windowConfigured"`
+	Window               *service.WindowStatus `json:"window,omitempty"`
+}
+
+// AccountWindowQuota keeps a shared subscription's account windows separate.
+// Adding their balances would imply that one client could spend another's quota.
+type AccountWindowQuota struct {
+	AccountIndex int                  `json:"accountIndex"`
+	Window       service.WindowStatus `json:"window"`
+}
+
+// A zero rate means this layer has no cap. A present directional zero removes
+// that layer's directional cap, while a nil direction inherits its symmetric
+// value. The final maximum is the lowest positive cap across all layers.
+func displayDirectionalRate(legacy int64, directional *int64) int64 {
+	if directional != nil {
+		return max(0, *directional)
+	}
+	return max(0, legacy)
+}
+
+func displayMinPositive(rates ...int64) int64 {
+	var out int64
+	for _, rate := range rates {
+		if rate > 0 && (out == 0 || rate < out) {
+			out = rate
+		}
+	}
+	return out
+}
+
+func (s *SubService) loadNodeOverview(subID string, windows []NodeWindowQuota) []NodeOverview {
+	db := database.GetDB()
+	if db == nil || subID == "" {
+		return nil
+	}
+	var clients []model.ClientRecord
+	if db.Where("sub_id = ?", subID).Order("id").Find(&clients).Error != nil || len(clients) == 0 {
+		return nil
+	}
+	var links []model.ClientInbound
+	if db.Where("client_id IN (SELECT id FROM clients WHERE sub_id = ?)", subID).
+		Order("client_id").Order("inbound_id").Find(&links).Error != nil || len(links) == 0 {
+		return nil
+	}
+	var inbounds []model.Inbound
+	if db.Where("id IN (SELECT inbound_id FROM client_inbounds WHERE client_id IN (SELECT id FROM clients WHERE sub_id = ?)) AND enable = ?", subID, true).
+		Where("protocol IN ?", []string{"vmess", "vless", "trojan", "shadowsocks", "hysteria", "wireguard", "amneziawg", "mtproto", "tuic"}).
+		Order("sub_sort_index ASC").Order("id ASC").Find(&inbounds).Error != nil {
+		return nil
+	}
+	type linkKey struct{ clientID, inboundID int }
+	linkByClientInbound := make(map[linkKey]model.ClientInbound, len(links))
+	for _, link := range links {
+		linkByClientInbound[linkKey{link.ClientId, link.InboundId}] = link
+	}
+	windowByClientInbound := make(map[linkKey]*service.WindowStatus, len(windows))
+	for _, window := range windows {
+		status := window.WindowStatus
+		windowByClientInbound[linkKey{window.ClientId, window.InboundId}] = &status
+	}
+	out := make([]NodeOverview, 0, len(clients)*len(inbounds))
+	for _, inbound := range inbounds {
+		factor := model.EffectiveTrafficMultiplierBps(inbound.TrafficMultiplierBps)
+		usageTracked := inbound.Protocol != model.TUIC
+		if !usageTracked {
+			// TUIC's UDP relay cannot attribute encrypted traffic to accounts.
+			factor = model.DefaultTrafficMultiplierBps
+		}
+		for clientIndex, client := range clients {
+			key := linkKey{client.Id, inbound.Id}
+			link, attached := linkByClientInbound[key]
+			if !attached {
+				continue
+			}
+			window := windowByClientInbound[key]
+			if !usageTracked {
+				window = nil
+			}
+			maxUp := displayMinPositive(displayDirectionalRate(client.SpeedLimitKbps, client.SpeedLimitUpKbps), displayDirectionalRate(link.SpeedLimitKbps, link.SpeedLimitUpKbps), displayDirectionalRate(inbound.SpeedLimitKbps, inbound.SpeedLimitUpKbps))
+			maxDown := displayMinPositive(displayDirectionalRate(client.SpeedLimitKbps, client.SpeedLimitDownKbps), displayDirectionalRate(link.SpeedLimitKbps, link.SpeedLimitDownKbps), displayDirectionalRate(inbound.SpeedLimitKbps, inbound.SpeedLimitDownKbps))
+			if !usageTracked {
+				// TUIC supports only an aggregate relay cap, not per-account caps.
+				maxUp = displayDirectionalRate(inbound.SpeedLimitKbps, inbound.SpeedLimitUpKbps)
+				maxDown = displayDirectionalRate(inbound.SpeedLimitKbps, inbound.SpeedLimitDownKbps)
+			}
+			out = append(out, NodeOverview{
+				InboundId:            inbound.Id,
+				AccountIndex:         clientIndex + 1,
+				Remark:               inbound.Remark,
+				Protocol:             string(inbound.Protocol),
+				MaxUpKbps:            maxUp,
+				MaxDownKbps:          maxDown,
+				TrafficMultiplierBps: factor,
+				UsageTracked:         usageTracked,
+				WindowConfigured:     usageTracked && link.WindowQuotaBytes > 0 && link.WindowHours > 0,
+				Window:               window,
+			})
+		}
+	}
+	return out
+}
+
+type NodeWindowQuota struct {
+	ClientId      int    `json:"-"`
+	InboundId     int    `json:"inboundId"`
+	Remark        string `json:"remark"`
+	Action        string `json:"action"`
+	MultiplierBps int    `json:"multiplierBps"`
+	Throttled     bool   `json:"throttled"`
+	service.WindowStatus
+}
+
+func (s *SubService) loadWindowQuotaPage(subID string) (*service.WindowStatus, []AccountWindowQuota, []NodeWindowQuota) {
+	db := database.GetDB()
+	if db == nil || subID == "" {
+		return nil, nil, nil
+	}
+	var clients []model.ClientRecord
+	if err := db.Where("sub_id = ?", subID).Order("id").Find(&clients).Error; err != nil || len(clients) == 0 {
+		return nil, nil, nil
+	}
+	var trackedClientIDs []int
+	if err := db.Table("client_inbounds ci").
+		Joins("JOIN clients c ON c.id = ci.client_id").
+		Joins("JOIN inbounds i ON i.id = ci.inbound_id").
+		Where("c.sub_id = ? AND i.enable = ? AND i.protocol <> ?", subID, true, model.TUIC).
+		Distinct().Pluck("ci.client_id", &trackedClientIDs).Error; err != nil {
+		return nil, nil, nil
+	}
+	tracked := make(map[int]bool, len(trackedClientIDs))
+	for _, id := range trackedClientIDs {
+		tracked[id] = true
+	}
+	now := time.Now()
+	var global *service.WindowStatus
+	accountWindows := make([]AccountWindowQuota, 0, len(clients))
+	for i, client := range clients {
+		if tracked[client.Id] && client.WindowQuotaBytes > 0 && client.WindowHours > 0 {
+			if status, err := service.WindowQuotaStatus(db, client.Id, 0, client.WindowQuotaBytes, client.WindowHours, client.WindowMode, now); err == nil {
+				accountWindows = append(accountWindows, AccountWindowQuota{AccountIndex: i + 1, Window: status})
+				if i == 0 {
+					global = &status
+				}
+			}
+		}
+	}
+	type windowQuotaPageRow struct {
+		ClientId                   int
+		Email                      string
+		InboundId                  int
+		NodeID                     *int
+		Tag                        string
+		Remark                     string
+		WindowQuotaBytes           int64
+		WindowHours                int
+		WindowMode                 string
+		WindowExhaustAction        string
+		WindowOverageMultiplierBps int
+	}
+	var rows []windowQuotaPageRow
+	if err := db.Table("client_inbounds ci").
+		Select("ci.client_id, c.email, ci.inbound_id, i.node_id, i.tag, i.remark, ci.window_quota_bytes, ci.window_hours, ci.window_mode, ci.window_exhaust_action, ci.window_overage_multiplier_bps").
+		Joins("JOIN clients c ON c.id = ci.client_id").
+		Joins("JOIN inbounds i ON i.id = ci.inbound_id").
+		Where("c.sub_id = ? AND i.enable = ? AND i.protocol <> ? AND ci.window_quota_bytes > 0", subID, true, model.TUIC).
+		Order("ci.client_id").Order("ci.inbound_id").Scan(&rows).Error; err != nil {
+		return global, accountWindows, nil
+	}
+	nodes := make([]NodeWindowQuota, len(rows))
+	valid := make([]bool, len(rows))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 8)
+	for i, row := range rows {
+		if row.NodeID == nil {
+			if status, err := service.WindowQuotaStatus(db, row.ClientId, row.InboundId, row.WindowQuotaBytes, row.WindowHours, row.WindowMode, now); err == nil {
+				nodes[i] = NodeWindowQuota{ClientId: row.ClientId, InboundId: row.InboundId, Remark: row.Remark, Action: subPolicyAction(row.WindowExhaustAction), MultiplierBps: model.EffectiveOverageMultiplierBps(row.WindowOverageMultiplierBps), Throttled: status.RemainingBytes == 0 && subPolicyAction(row.WindowExhaustAction) == "throttle", WindowStatus: status}
+				valid[i] = true
+			}
+			continue
+		}
+		mgr := runtime.GetManager()
+		if mgr == nil {
+			continue
+		}
+		rt, err := mgr.RuntimeFor(row.NodeID)
+		remote, ok := rt.(*runtime.Remote)
+		if err != nil || !ok {
+			continue
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, row windowQuotaPageRow) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			raw, err := remote.GetClientWindowStatus(ctx, &model.Inbound{Tag: row.Tag}, row.Email)
+			if err != nil {
+				return
+			}
+			var status service.WindowStatus
+			if json.Unmarshal(raw, &status) != nil {
+				return
+			}
+			nodes[i] = NodeWindowQuota{ClientId: row.ClientId, InboundId: row.InboundId, Remark: row.Remark, Action: subPolicyAction(row.WindowExhaustAction), MultiplierBps: model.EffectiveOverageMultiplierBps(row.WindowOverageMultiplierBps), Throttled: status.RemainingBytes == 0 && subPolicyAction(row.WindowExhaustAction) == "throttle", WindowStatus: status}
+			valid[i] = true
+		}(i, row)
+	}
+	wg.Wait()
+	out := make([]NodeWindowQuota, 0, len(rows))
+	for i := range nodes {
+		if valid[i] {
+			out = append(out, nodes[i])
+		}
+	}
+	return global, accountWindows, out
 }
 
 // ResolveRequest extracts scheme and host info from request/headers consistently.
@@ -3082,14 +3414,22 @@ func (s *SubService) joinPathWithID(basePath, subId string) string {
 // BuildPageData parses header and prepares the template view model.
 // BuildPageData constructs page data for rendering the subscription information page.
 func (s *SubService) BuildPageData(subId string, hostHeader string, traffic xray.ClientTraffic, lastOnline int64, subs []string, emails []string, subURL, subJsonURL, subClashURL string, basePath string, subTitle string, subSupportUrl string) PageData {
+	windowQuota, accountWindows, nodeWindows := s.loadWindowQuotaPage(subId)
+	accountStates := s.loadAccountPublicStatuses(subId, emails, accountWindows)
+	physicalUsed := positiveSum(traffic.Up, traffic.Down)
+	chargedUsed := max(0, positiveSum(physicalUsed, max(traffic.ChargeExtraBytes, 0))-max(traffic.ChargeDiscountBytes, 0))
+	publicState := summarizeAccountStates(accountStates)
+	if publicState == "" {
+		publicState = publicPolicyState(s.loadSubPolicyStatus(subId, traffic, windowQuota))
+	}
 	download := common.FormatTraffic(traffic.Down)
 	upload := common.FormatTraffic(traffic.Up)
 	total := "∞"
-	used := common.FormatTraffic(traffic.Up + traffic.Down)
+	used := common.FormatTraffic(chargedUsed)
 	remained := ""
 	if traffic.Total > 0 {
 		total = common.FormatTraffic(traffic.Total)
-		left := max(traffic.Total-(traffic.Up+traffic.Down), 0)
+		left := max(traffic.Total-chargedUsed, 0)
 		remained = common.FormatTraffic(left)
 	}
 
@@ -3127,9 +3467,8 @@ func (s *SubService) BuildPageData(subId string, hostHeader string, traffic xray
 		Datepicker:    datepicker,
 		DownloadByte:  traffic.Down,
 		UploadByte:    traffic.Up,
+		UsedByte:      chargedUsed,
 		TotalByte:     traffic.Total,
-		HistoryByte:   traffic.HistoryUp + traffic.HistoryDown,
-		Quota:         s.QuotaDetails(subId, traffic),
 		SubUrl:        subURL,
 		SubJsonUrl:    subJsonURL,
 		SubClashUrl:   subClashURL,
@@ -3137,6 +3476,11 @@ func (s *SubService) BuildPageData(subId string, hostHeader string, traffic xray
 		SubSupportUrl: subSupportUrl,
 		Result:        pageLinks,
 		Emails:        pageEmails,
+		WindowQuota:   windowQuota,
+		WindowQuotas:  accountWindows,
+		AccountStates: accountStates,
+		Nodes:         s.loadNodeOverview(subId, nodeWindows),
+		PublicState:   publicState,
 	}
 }
 

@@ -48,6 +48,10 @@ type Instance struct {
 	MaxUdpRelayPacketSize int
 	SNI                   string
 	Clients               []TuicClientSettings
+	// The public UDP relay can enforce an aggregate ceiling for the inbound.
+	// Individual QUIC users are identifiable only inside the TUIC sidecar.
+	SpeedLimitUpKbps   int64
+	SpeedLimitDownKbps int64
 }
 
 func (inst Instance) BindTo() string {
@@ -228,6 +232,20 @@ func InstanceFromInbound(ib *model.Inbound) (Instance, bool) {
 		})
 	}
 
+	upKbps, downKbps := ib.SpeedLimitKbps, ib.SpeedLimitKbps
+	if ib.SpeedLimitUpKbps != nil {
+		upKbps = *ib.SpeedLimitUpKbps
+	}
+	if ib.SpeedLimitDownKbps != nil {
+		downKbps = *ib.SpeedLimitDownKbps
+	}
+	if upKbps < 0 {
+		upKbps = 0
+	}
+	if downKbps < 0 {
+		downKbps = 0
+	}
+
 	return Instance{
 		Id:                    ib.Id,
 		Tag:                   ib.Tag,
@@ -245,5 +263,7 @@ func InstanceFromInbound(ib *model.Inbound) (Instance, bool) {
 		MaxUdpRelayPacketSize: maxPacketSize,
 		SNI:                   sni,
 		Clients:               clients,
+		SpeedLimitUpKbps:      upKbps,
+		SpeedLimitDownKbps:    downKbps,
 	}, true
 }

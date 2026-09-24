@@ -9,6 +9,7 @@ import {
   tlsCertUsesFiles,
 } from '@/schemas/protocols/security';
 import { NetworkSettingsSchema, StreamExtrasSchema } from '@/schemas/protocols/stream';
+import { MAX_TRAFFIC_MULTIPLIER_BPS } from '@/lib/xray/traffic-multiplier';
 
 // Inbound certificates must follow the selected editor mode. The shared wire
 // union also serves outbound TLS, where a client certificate is optional.
@@ -74,13 +75,20 @@ export const InboundDbFieldsSchema = z.object({
   up: z.number().int().min(0).default(0),
   down: z.number().int().min(0).default(0),
   total: z.number().int().min(0).default(0),
+  speedLimitKbps: z.number().int().min(0).max(1000000000).default(0),
+  speedLimitUpKbps: z.number().int().min(0).max(1000000000).default(0),
+  speedLimitDownKbps: z.number().int().min(0).max(1000000000).default(0),
+  trafficMultiplierBps: z
+    .number()
+    .int()
+    .min(100)
+    .max(MAX_TRAFFIC_MULTIPLIER_BPS)
+    .refine(Number.isSafeInteger)
+    .default(10000),
   trafficReset: TrafficResetSchema.default('never'),
   trafficResetDay: z.number().int().min(1).max(31).default(1),
+  trafficResetInterval: z.number().int().min(1).max(10000).default(1),
   lastTrafficResetTime: z.number().int().default(0),
-  windowQuotaGB: z.number().int().min(0).default(0),
-  windowMinutes: z.number().int().min(0).default(0),
-  windowAction: z.enum(['', 'disable', 'throttle']).default(''),
-  windowSpeed: z.number().int().min(0).default(0),
   nodeId: z.number().int().nullable().optional(),
   shareAddrStrategy: ShareAddrStrategySchema.default('node'),
   shareAddr: z.string().default(''),

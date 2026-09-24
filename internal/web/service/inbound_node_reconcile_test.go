@@ -301,6 +301,39 @@ func TestReconcileNode_AdoptsCompatibleOriginInboundWithoutRemoteMutation(t *tes
 	}
 }
 
+// A dirty database can hold both the bare and central-prefixed form of one
+// remote tag. Only the exact central owner may push to that remote inbound;
+// the other row must remain untouched until its links and traffic are reviewed.
+func TestReconcileNode_DoesNotPushConflictingAliasOverExactOwner(t *testing.T) {
+	setupConflictDB(t)
+	var updates int
+	writeOK := func(w http.ResponseWriter, obj any) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "msg": "", "obj": obj})
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/panel/api/inbounds/list", func(w http.ResponseWriter, _ *http.Request) {
+		writeOK(w, []map[string]any{{"id": 41, "tag": "free", "port": 443, "protocol": "vless"}})
+	})
+	mux.HandleFunc("/panel/api/inbounds/update/", func(w http.ResponseWriter, _ *http.Request) {
+		updates++
+		writeOK(w, nil)
+	})
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+	node := reconcileTestNode(t, ts, "B", "all", nil)
+	seedInboundConflictNode(t, "free", "", 443, model.VLESS, `{"network":"tcp"}`, `{"clients":[]}`, &node.Id)
+	seedInboundConflictNode(t, fmt.Sprintf("n%d-free", node.Id), "", 8443, model.VLESS, `{"network":"tcp"}`, `{"clients":[]}`, &node.Id)
+
+	err := (&InboundService{}).ReconcileNode(context.Background(), runtime.NewRemote(node, nil), node)
+	if err == nil || !strings.Contains(err.Error(), "belongs exactly to central inbound") {
+		t.Fatalf("ReconcileNode error = %v, want conflicting alias diagnostic", err)
+	}
+	if updates != 1 {
+		t.Fatalf("remote inbound updated %d times, want only the exact owner to push", updates)
+	}
+}
+
 func TestReconcileNode_AmbiguousCompatibleInboundsAreNotSwept(t *testing.T) {
 	setupConflictDB(t)
 

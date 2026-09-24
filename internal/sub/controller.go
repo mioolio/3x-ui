@@ -403,7 +403,9 @@ func (a *SUBController) maybeServeSubInfo(c *gin.Context) bool {
 	}
 	info := a.subPageContext(page)
 	delete(info, "links")
-	info["emails"] = dedupeEmails(page.Emails)
+	delete(info, "subUrl")
+	delete(info, "subJsonUrl")
+	delete(info, "subClashUrl")
 	setNoCacheHeaders(c)
 	c.JSON(http.StatusOK, info)
 	return true
@@ -435,22 +437,6 @@ func (a *SUBController) buildSubPageData(c *gin.Context) (PageData, bool) {
 	page := subReq.BuildPageData(subId, hostHeader, traffic, lastOnline, subs, emails, subURL, subJsonURL, subClashURL, basePathStr, metadata.Title, metadata.SupportURL)
 	page.SubAnnounce = metadata.Announce
 	return page, true
-}
-
-func dedupeEmails(emails []string) []string {
-	out := make([]string, 0, len(emails))
-	seen := make(map[string]struct{}, len(emails))
-	for _, email := range emails {
-		if email == "" {
-			continue
-		}
-		if _, dup := seen[email]; dup {
-			continue
-		}
-		seen[email] = struct{}{}
-		out = append(out, email)
-	}
-	return out
 }
 
 // subs handles HTTP requests for subscription links, returning either HTML page or base64-encoded subscription data.
@@ -493,7 +479,7 @@ func (a *SUBController) subs(c *gin.Context) {
 		}
 
 		// Add headers
-		header := subReq.subscriptionUserinfo(traffic)
+		header := subReq.subscriptionUserinfo(subReq.subscriptionHeaderTraffic(subId, traffic))
 		metadata := a.metadataForSubRequest(func() *SubService { return subReq }, subId, builtinProfileURL(c, scheme, hostWithPort))
 		a.ApplyCommonHeaders(c, header, a.updateInterval, metadata.Title, metadata.SupportURL, metadata.ProfileURL, metadata.Announce, a.subEnableRouting, a.subRoutingRules, a.subHideSettings)
 
@@ -677,9 +663,8 @@ func (a *SUBController) subPageContext(page PageData) map[string]any {
 		"lastOnline":    page.LastOnline,
 		"downloadByte":  page.DownloadByte,
 		"uploadByte":    page.UploadByte,
+		"usedByte":      page.UsedByte,
 		"totalByte":     page.TotalByte,
-		"historyByte":   page.HistoryByte,
-		"quota":         page.Quota,
 		"subUrl":        page.SubUrl,
 		"subJsonUrl":    page.SubJsonUrl,
 		"subClashUrl":   page.SubClashUrl,
@@ -687,7 +672,11 @@ func (a *SUBController) subPageContext(page PageData) map[string]any {
 		"subSupportUrl": page.SubSupportUrl,
 		"subUpdates":    updateHours,
 		"links":         page.Result,
-		"emails":        page.Emails,
+		"windowQuota":   page.WindowQuota,
+		"windowQuotas":  page.WindowQuotas,
+		"accountStates": page.AccountStates,
+		"nodes":         page.Nodes,
+		"publicState":   page.PublicState,
 		"datepicker":    datepicker,
 		"announce":      page.SubAnnounce,
 	}

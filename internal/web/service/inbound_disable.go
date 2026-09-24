@@ -3,7 +3,6 @@ package service
 import (
 	"encoding/json"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
@@ -44,13 +43,13 @@ func globalTrafficFreshSince() int64 {
 // pushed into client_global_traffics — that's what lets a node cut a client
 // whose combined usage exceeds the quota even though the local share doesn't.
 // Only rows a master refreshed recently count (placeholders: now, freshSince).
-const depletedClientsCond = `((total > 0 AND up + down >= total)
+const depletedClientsCond = `((total > 0 AND up + down + charge_extra_bytes - charge_discount_bytes >= total)
 	OR (expiry_time > 0 AND expiry_time <= ?)
 	OR (total > 0 AND EXISTS (
 		SELECT 1 FROM client_global_traffics g
 		WHERE g.email = client_traffics.email
 			AND g.updated_at >= ?
-			AND g.up + g.down >= client_traffics.total
+			AND g.up + g.down + g.charge_extra_bytes - g.charge_discount_bytes >= client_traffics.total
 	)))`
 
 // depletedClientsCondLocal is depletedClientsCond without the cross-panel
@@ -58,7 +57,7 @@ const depletedClientsCond = `((total > 0 AND up + down >= total)
 // turns every traffic poll into a full client_traffics scan; on a panel no
 // master pushes to (the common case) client_global_traffics is empty, so the
 // branch can never match and is pure CPU cost (#5392). Placeholders: now.
-const depletedClientsCondLocal = `((total > 0 AND up + down >= total)
+const depletedClientsCondLocal = `((total > 0 AND up + down + charge_extra_bytes - charge_discount_bytes >= total)
 	OR (expiry_time > 0 AND expiry_time <= ?))`
 
 // depletedCond returns the predicate matching depleted clients together with
@@ -78,6 +77,52 @@ func depletedCond(tx *gorm.DB) (string, []any) {
 	return depletedClientsCondLocal, []any{now}
 }
 
+// filterHardStoppedClients keeps only accounts whose configured policy has
+// reached a genuine stop condition. A client in a slow-overage stage or an
+// active expiry grace period must remain enabled and must not be purged.
+func filterHardStoppedClients(tx *gorm.DB, candidates []xray.ClientTraffic, now int64) ([]xray.ClientTraffic, error) {
+	if len(candidates) == 0 {
+		return candidates, nil
+	}
+	rowPtrs := make([]*xray.ClientTraffic, 0, len(candidates))
+	emailsToCheck := make([]string, 0, len(candidates))
+	for i := range candidates {
+		rowPtrs = append(rowPtrs, &candidates[i])
+		emailsToCheck = append(emailsToCheck, candidates[i].Email)
+	}
+	overlayGlobalTraffic(tx, rowPtrs)
+	policyByEmail := make(map[string]model.ClientRecord, len(candidates))
+	for _, batch := range chunkStrings(emailsToCheck, sqlInChunk) {
+		var page []model.ClientRecord
+		if err := tx.Select("email", "total_exhaust_action", "grace_hours", "grace_quota_bytes").
+			Where("email IN ?", batch).Find(&page).Error; err != nil {
+			return nil, err
+		}
+		for _, policy := range page {
+			policyByEmail[policy.Email] = policy
+		}
+	}
+	stopped := candidates[:0]
+	for _, row := range candidates {
+		policy := policyByEmail[row.Email]
+		physical, charged := policyUsedBytes(&row)
+		quotaStop := row.Total > 0 && charged >= row.Total && effectivePolicyAction(policy.TotalExhaustAction) == "stop"
+		expiryStop := row.ExpiryTime > 0 && row.ExpiryTime <= now
+		if expiryStop && policy.GraceHours > 0 {
+			graceEnds := row.ExpiryTime + int64(policy.GraceHours)*int64(time.Hour/time.Millisecond)
+			baseline := physical
+			if row.GraceBaselineExpiry == row.ExpiryTime {
+				baseline = row.GraceBaselineBytes
+			}
+			expiryStop = now >= graceEnds || (policy.GraceQuotaBytes > 0 && physical-baseline >= policy.GraceQuotaBytes)
+		}
+		if quotaStop || expiryStop {
+			stopped = append(stopped, row)
+		}
+	}
+	return stopped, nil
+}
+
 func (s *InboundService) disableInvalidClients(tx *gorm.DB, mutationBatch *trafficMutationBatch) (bool, int64, []int, error) {
 	now := time.Now().UnixMilli()
 	cond, condArgs := depletedCond(tx)
@@ -92,50 +137,14 @@ func (s *InboundService) disableInvalidClients(tx *gorm.DB, mutationBatch *traff
 	if len(depletedRows) == 0 {
 		return false, 0, nil, nil
 	}
-
-	// Clients configured to throttle on depletion stay connected at their
-	// reduced rate — the throttle sync enforces that; hard-disabling them here
-	// would undo the opt-in behaviour every tick. The grace clock caps how
-	// long that leniency lasts: once throttled_since + graceDays has passed,
-	// the client falls back to the normal depleted disable.
-	type throttleRow struct {
-		Email          string
-		GraceDays      int
-		ThrottledSince int64
-	}
-	var throttleRows []throttleRow
-	if err := tx.Table("clients").
-		Select(`clients.email AS email,
-			COALESCE(clients.depletion_grace_days, 0) AS grace_days,
-			COALESCE(client_traffics.throttled_since, 0) AS throttled_since`).
-		Joins("JOIN client_traffics ON client_traffics.email = clients.email").
-		Where("COALESCE(clients.depletion_action, '') = ?", "throttle").
-		Find(&throttleRows).Error; err != nil {
+	// Overlay fresh master totals and apply the configured hard-stop policy
+	// before mutating enable flags or removing users from Xray.
+	depletedRows, err = filterHardStoppedClients(tx, depletedRows, now)
+	if err != nil {
 		return false, 0, nil, err
 	}
-	if len(throttleRows) > 0 {
-		now := time.Now().UnixMilli()
-		throttleSet := make(map[string]struct{}, len(throttleRows))
-		for _, r := range throttleRows {
-			graceExpired := r.GraceDays > 0 && r.ThrottledSince > 0 &&
-				now >= r.ThrottledSince+int64(r.GraceDays)*86400000
-			if !graceExpired {
-				throttleSet[strings.ToLower(r.Email)] = struct{}{}
-			}
-		}
-		if len(throttleSet) > 0 {
-			kept := depletedRows[:0]
-			for i := range depletedRows {
-				if _, skip := throttleSet[strings.ToLower(depletedRows[i].Email)]; skip {
-					continue
-				}
-				kept = append(kept, depletedRows[i])
-			}
-			depletedRows = kept
-			if len(depletedRows) == 0 {
-				return false, 0, nil, nil
-			}
-		}
+	if len(depletedRows) == 0 {
+		return false, 0, nil, nil
 	}
 
 	depletedEmails := make([]string, 0, len(depletedRows))

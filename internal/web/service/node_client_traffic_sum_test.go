@@ -122,6 +122,34 @@ func TestSingleNode_MirrorsCorrectly(t *testing.T) {
 	assertUpDown(t, readTraffic(t, db, email), 200, 200, "second sync — delta accrues")
 }
 
+func TestNodeSyncPreservesMultiplierDiscountAndExtraCounters(t *testing.T) {
+	db := initTrafficTestDB(t)
+	createNodeInbound(t, db, 1, "discounted-in", 41023)
+	svc := &InboundService{}
+	const email = "discounted-node-client"
+	syncNode(t, svc, 1, "discounted-in", xray.ClientTraffic{
+		Email: email, Up: 100, ChargeExtraBytes: 10, ChargeDiscountBytes: 60, Enable: true,
+	})
+	syncNode(t, svc, 1, "discounted-in", xray.ClientTraffic{
+		Email: email, Up: 200, ChargeExtraBytes: 20, ChargeDiscountBytes: 120, Enable: true,
+	})
+	got := readTraffic(t, db, email)
+	if got.Up != 100 || got.ChargeExtraBytes != 10 || got.ChargeDiscountBytes != 60 {
+		t.Fatalf("node multiplier counters after delta = %+v", got)
+	}
+	if _, charged := policyUsedBytes(&got); charged != 50 {
+		t.Fatalf("charged usage = %d, want 50", charged)
+	}
+	// Replaying the same snapshot must not debit or credit the master again.
+	syncNode(t, svc, 1, "discounted-in", xray.ClientTraffic{
+		Email: email, Up: 200, ChargeExtraBytes: 20, ChargeDiscountBytes: 120, Enable: true,
+	})
+	got = readTraffic(t, db, email)
+	if got.Up != 100 || got.ChargeExtraBytes != 10 || got.ChargeDiscountBytes != 60 {
+		t.Fatalf("replayed node counters changed usage = %+v", got)
+	}
+}
+
 func TestNodeAdd_ImportsClientHistoryWithNewInbound(t *testing.T) {
 	db := initTrafficTestDB(t)
 	svc := &InboundService{}

@@ -1453,16 +1453,26 @@ func (s *ClientService) ResetClientIpLimitByEmail(inboundSvc *InboundService, cl
 }
 
 func (s *ClientService) ResetClientExpiryTimeByEmail(inboundSvc *InboundService, clientEmail string, expiry_time int64) (bool, error) {
-	return s.applyClientFieldByEmail(inboundSvc, clientEmail, func(c map[string]any) {
+	needRestart, err := s.applyClientFieldByEmail(inboundSvc, clientEmail, func(c map[string]any) {
 		c["expiryTime"] = expiry_time
 	})
+	if err == nil {
+		err = database.GetDB().Model(&xray.ClientTraffic{}).Where("email = ?", clientEmail).
+			Updates(map[string]any{"quota_epoch": time.Now().UnixNano(), "grace_baseline_bytes": 0, "grace_baseline_expiry": 0}).Error
+	}
+	return needRestart, err
 }
 
 func (s *ClientService) ResetClientTrafficLimitByEmail(inboundSvc *InboundService, clientEmail string, totalGB int) (bool, error) {
 	if totalGB < 0 {
 		return false, common.NewError("totalGB must be >= 0")
 	}
-	return s.applyClientFieldByEmail(inboundSvc, clientEmail, func(c map[string]any) {
+	needRestart, err := s.applyClientFieldByEmail(inboundSvc, clientEmail, func(c map[string]any) {
 		c["totalGB"] = totalGB * 1024 * 1024 * 1024
 	})
+	if err == nil {
+		err = database.GetDB().Model(&xray.ClientTraffic{}).Where("email = ?", clientEmail).
+			UpdateColumn("quota_epoch", time.Now().UnixNano()).Error
+	}
+	return needRestart, err
 }

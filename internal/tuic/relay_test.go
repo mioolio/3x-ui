@@ -5,7 +5,65 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"golang.org/x/time/rate"
 )
+
+func TestUDPRelayDirectionalCeilingAndNonBlockingDrop(t *testing.T) {
+	relay, err := startUDPRelay("127.0.0.1:0", doublingEcho(t), relayFlowIdle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(relay.Close)
+	relay.SetDirectionalRates(400, 0)
+	if got := relay.upLimit.Limit(); got != rate.Limit(50_000) {
+		t.Fatalf("upload rate = %v bytes/s, want 50000", got)
+	}
+	if got := relay.downLimit.Limit(); got != rate.Inf {
+		t.Fatalf("download rate = %v, want unlimited", got)
+	}
+	if !relay.upLimit.AllowN(time.Now(), relay.upLimit.Burst()) {
+		t.Fatal("the first burst of upload traffic must be allowed")
+	}
+	if relay.upLimit.AllowN(time.Now(), relay.upLimit.Burst()) {
+		t.Fatal("a second immediate upload burst must exceed the ceiling")
+	}
+	relay.SetDirectionalRates(0, 800)
+	if relay.upLimit.Limit() != rate.Inf || relay.downLimit.Limit() != rate.Limit(100_000) {
+		t.Fatal("live rate update did not switch the limited direction")
+	}
+	if relay.downLimit.Burst() < 2048 {
+		t.Fatal("low ceilings must still allow an entire ordinary QUIC datagram")
+	}
+}
+
+func TestUDPRelayOversizedPacketCannotBlockOtherClients(t *testing.T) {
+	relay, err := startUDPRelay("127.0.0.1:0", doublingEcho(t), relayFlowIdle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(relay.Close)
+	relay.SetDirectionalRates(1, 0)
+	bully, err := net.DialUDP("udp", nil, relay.LocalAddr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bully.Close()
+	if _, err := bully.Write(bytes.Repeat([]byte("b"), 60_000)); err != nil {
+		t.Fatal(err)
+	}
+	// A 60 kB datagram would occupy a 1 Kbps blocking shaper for minutes.
+	// The next client's ordinary datagram must be forwarded immediately.
+	if got := roundTrip(t, relay, []byte("a")); got != 2 {
+		t.Fatalf("another client stalled behind the oversized packet: reply=%d", got)
+	}
+	relay.mu.Lock()
+	flows := len(relay.flows)
+	relay.mu.Unlock()
+	if flows != 1 {
+		t.Fatalf("rejected packet allocated a flow socket: %d flows, want only the accepted client", flows)
+	}
+}
 
 // doublingEcho answers every datagram with the payload repeated twice, so a
 // relay that mislabels directions or clients cannot pass by accident.

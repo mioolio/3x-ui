@@ -18,10 +18,11 @@ import (
 // fakeNodeHTTP emulates a node panel over real HTTP, so the master's Remote
 // (tag cache, list fetch, per-op RPC, timeouts) runs for real, not a stub.
 type fakeNodeHTTP struct {
-	srv  *httptest.Server
-	mu   sync.Mutex
-	tags map[string]int
-	hits map[string]int
+	srv          *httptest.Server
+	mu           sync.Mutex
+	tags         map[string]int
+	hits         map[string]int
+	missingPaths map[string]bool
 	// hold makes every non-list request block until the master gives up.
 	hold    bool
 	release chan struct{}
@@ -29,7 +30,7 @@ type fakeNodeHTTP struct {
 
 func newFakeNodeHTTP(t *testing.T) *fakeNodeHTTP {
 	t.Helper()
-	f := &fakeNodeHTTP{tags: map[string]int{}, hits: map[string]int{}, release: make(chan struct{})}
+	f := &fakeNodeHTTP{tags: map[string]int{}, hits: map[string]int{}, missingPaths: map[string]bool{}, release: make(chan struct{})}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if strings.HasSuffix(r.URL.Path, "/inbounds/list") {
@@ -51,7 +52,12 @@ func newFakeNodeHTTP(t *testing.T) *fakeNodeHTTP {
 		f.mu.Lock()
 		f.hits[r.URL.Path]++
 		hold := f.hold
+		missing := f.missingPaths[r.URL.Path]
 		f.mu.Unlock()
+		if missing {
+			http.NotFound(w, r)
+			return
+		}
 		if hold {
 			// Drain first: the server only notices a client disconnect once the
 			// body is consumed, and Close would otherwise wait on this forever.
@@ -68,6 +74,12 @@ func newFakeNodeHTTP(t *testing.T) *fakeNodeHTTP {
 	// Registered after Close, so it runs first and frees any held handler.
 	t.Cleanup(func() { close(f.release) })
 	return f
+}
+
+func (f *fakeNodeHTTP) setMissing(path string, missing bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.missingPaths[path] = missing
 }
 
 func (f *fakeNodeHTTP) setHold(v bool) {

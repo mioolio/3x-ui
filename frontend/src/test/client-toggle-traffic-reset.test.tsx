@@ -45,7 +45,7 @@ describe('client enable toggle', () => {
       expect(post).toHaveBeenCalledWith(
         '/panel/api/clients/update/scheduled%40example.com',
         expect.objectContaining({ email, enable, trafficReset: 'monthly', trafficResetDay: 15 }),
-        { headers: { 'Content-Type': 'application/json' } },
+        expect.objectContaining({ headers: { 'Content-Type': 'application/json' } }),
       );
     },
   );

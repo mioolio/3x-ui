@@ -31,7 +31,8 @@ import type { Dayjs } from 'dayjs';
 import { Controller, FormProvider, useForm, useWatch, useFieldArray } from 'react-hook-form';
 
 import { HttpUtil, IntlUtil, RandomUtil, Wireguard } from '@/utils';
-import { formatInboundLabel } from '@/lib/inbounds/label';
+import { getMessage } from '@/utils/messageBus';
+import { formatInboundOptionLabel } from '@/lib/inbounds/label';
 import { generateMtprotoSecret } from '@/lib/xray/inbound-defaults';
 import { normalizeClientIps, type ClientIpInfo } from '@/lib/clients/ip-log';
 import { resolveExternalLinkExpiry } from '@/lib/clients/external-link';
@@ -49,11 +50,11 @@ import type {
 } from '@/hooks/useClients';
 import { useFail2banStatusQuery, getLimitIpNotice } from '@/api/queries/useFail2banStatusQuery';
 import { ClientFormSchema, ClientCreateFormSchema, type ClientFormValues } from '@/schemas/client';
+import ClientPolicyFields, { PolicySpeedInput } from './ClientPolicyFields';
 import './ClientFormModal.css';
 
 const FLOW_OPTIONS = Object.values(TLS_FLOW_CONTROL);
 const VMESS_SECURITY_OPTIONS = ['auto', 'aes-128-gcm', 'chacha20-poly1305'] as const;
-const BANDWIDTH_ACTIONS = ['', 'disable', 'throttle'] as const;
 
 const MULTI_CLIENT_PROTOCOLS = new Set([
   'shadowsocks',
@@ -69,6 +70,13 @@ const MULTI_CLIENT_PROTOCOLS = new Set([
 
 const CLIENT_FORM_MODAL_Z_INDEX = 1000;
 const CLIENT_IP_LOG_MODAL_Z_INDEX = CLIENT_FORM_MODAL_Z_INDEX + 1;
+type SpeedDirection = 'up' | 'down';
+type SpeedUnit = 'Mbps' | 'Kbps';
+
+interface DirectionalRate {
+  upKbps: number;
+  downKbps: number;
+}
 
 interface ExternalLinkRow {
   kind: 'link' | 'subscription';
@@ -79,6 +87,17 @@ interface ExternalLinkRow {
   namePrefix: string;
   lastFetchAt: number;
   lastFetchError: string;
+}
+
+interface InboundWindowQuotaRow {
+  quotaBytes: number;
+  quotaGB: number;
+  hours: number;
+  mode: 'fixed' | 'rolling';
+  windowExhaustAction: 'stop' | 'throttle';
+  windowExhaustUpKbps: number;
+  windowExhaustDownKbps: number;
+  windowOverageMultiplierBps: number;
 }
 
 interface ApiMsg<T = unknown> {
@@ -151,6 +170,23 @@ const EMPTY: Values = {
   security: 'auto',
   reverseTag: '',
   totalGB: 0,
+  speedLimitUpKbps: 0,
+  speedLimitDownKbps: 0,
+  windowQuotaGB: 0,
+  windowHours: 2,
+  windowMode: 'fixed',
+  totalExhaustAction: 'stop',
+  totalExhaustUpKbps: 0,
+  totalExhaustDownKbps: 0,
+  totalOverageMultiplierBps: 10000,
+  windowExhaustAction: 'stop',
+  windowExhaustUpKbps: 0,
+  windowExhaustDownKbps: 0,
+  windowOverageMultiplierBps: 10000,
+  graceHours: 0,
+  graceUpKbps: 0,
+  graceDownKbps: 0,
+  graceQuotaGB: 0,
   expiryDate: 0,
   delayedStart: false,
   delayedDays: 0,
@@ -166,17 +202,6 @@ const EMPTY: Values = {
   comment: '',
   enable: true,
   inboundIds: [],
-  speedLimitUp: 0,
-  speedLimitDown: 0,
-  depletionAction: '' as const,
-  depletionSpeed: 0,
-  depletionGraceDays: 0,
-  depletionPeriod: 'never' as const,
-  depletionPeriodGB: 0,
-  windowQuotaGB: 0,
-  windowMinutes: 0,
-  windowAction: '' as const,
-  windowSpeed: 0,
   externalLinks: [],
   wgPrivateKey: '',
   wgPublicKey: '',
@@ -271,7 +296,10 @@ export default function ClientFormModal({
   const methods = useForm<Values>({ defaultValues: EMPTY });
   const inboundIds = useWatch({ control: methods.control, name: 'inboundIds' });
   const delayedStart = useWatch({ control: methods.control, name: 'delayedStart' });
+  const delayedDays = useWatch({ control: methods.control, name: 'delayedDays' });
   const expiryDate = useWatch({ control: methods.control, name: 'expiryDate' });
+  const graceHours = useWatch({ control: methods.control, name: 'graceHours' }) || 0;
+  const hasExpiry = delayedStart ? Number(delayedDays) > 0 : Number(expiryDate) > 0;
   const enable = useWatch({ control: methods.control, name: 'enable' });
   const flow = useWatch({ control: methods.control, name: 'flow' });
   const reverseTag = useWatch({ control: methods.control, name: 'reverseTag' });
@@ -282,19 +310,6 @@ export default function ClientFormModal({
   const password = useWatch({ control: methods.control, name: 'password' });
   const subId = useWatch({ control: methods.control, name: 'subId' });
   const limitHwid = useWatch({ control: methods.control, name: 'limitHwid' });
-  const depletionAction = useWatch({ control: methods.control, name: 'depletionAction' });
-  const depletionPeriod = useWatch({ control: methods.control, name: 'depletionPeriod' });
-  const speedLimitDown = useWatch({ control: methods.control, name: 'speedLimitDown' }) || 0;
-  const speedLimitUp = useWatch({ control: methods.control, name: 'speedLimitUp' }) || 0;
-  const [speedUnit, setSpeedUnit] = useState<'Kbps' | 'Mbps'>('Kbps');
-  const speedUnitFactor = speedUnit === 'Mbps' ? 1000 : 1;
-  const PLAN_PERIODS = ['never', 'daily', 'weekly', 'monthly'] as const;
-  const windowMinutes = useWatch({ control: methods.control, name: 'windowMinutes' });
-  const windowAction = useWatch({ control: methods.control, name: 'windowAction' });
-  const bandwidthActionOptions = BANDWIDTH_ACTIONS.map((a) => ({
-    value: a,
-    label: t(`pages.clients.bandwidthAction.${a === '' ? 'default' : a}`),
-  }));
   const auth = useWatch({ control: methods.control, name: 'auth' });
   const wgPrivateKey = useWatch({ control: methods.control, name: 'wgPrivateKey' });
   const limitIp = useWatch({ control: methods.control, name: 'limitIp' });
@@ -305,6 +320,115 @@ export default function ClientFormModal({
   } = useFieldArray({ control: methods.control, name: 'externalLinks' });
 
   const [submitting, setSubmitting] = useState(false);
+  const [activeTab, setActiveTab] = useState('basic');
+  const [speedUnits, setSpeedUnits] = useState<Record<SpeedDirection, SpeedUnit>>({
+    up: 'Mbps',
+    down: 'Mbps',
+  });
+  const [inboundRates, setInboundRates] = useState<Record<number, DirectionalRate>>({});
+  const [inboundRateUnits, setInboundRateUnits] = useState<
+    Record<number, Record<SpeedDirection, SpeedUnit>>
+  >({});
+  const [inboundQuotas, setInboundQuotas] = useState<Record<number, InboundWindowQuotaRow>>({});
+  const [linkedRatesLoaded, setLinkedRatesLoaded] = useState(false);
+  const [linkedQuotasLoaded, setLinkedQuotasLoaded] = useState(false);
+  const [linkedSettingsFailed, setLinkedSettingsFailed] = useState(false);
+  const linkedSettingsReady =
+    !isEdit || (linkedRatesLoaded && linkedQuotasLoaded && !linkedSettingsFailed);
+  const speedLimitUpKbps = useWatch({ control: methods.control, name: 'speedLimitUpKbps' }) ?? 0;
+  const speedLimitDownKbps =
+    useWatch({ control: methods.control, name: 'speedLimitDownKbps' }) ?? 0;
+
+  useEffect(() => {
+    if (!open || !isEdit || !client?.email) {
+      setInboundRates({});
+      setInboundRateUnits({});
+      setInboundQuotas({});
+      setLinkedRatesLoaded(false);
+      setLinkedQuotasLoaded(false);
+      setLinkedSettingsFailed(false);
+      return;
+    }
+    setLinkedRatesLoaded(false);
+    setLinkedQuotasLoaded(false);
+    setLinkedSettingsFailed(false);
+    let cancelled = false;
+    void HttpUtil.get(
+      `/panel/api/clients/${encodeURIComponent(client.email)}/directionalRates`,
+      undefined,
+      {
+        silent: true,
+      },
+    )
+      .then((result) => {
+        if (cancelled) return;
+        if (!result?.success || !result.obj || typeof result.obj !== 'object') {
+          setLinkedSettingsFailed(true);
+          return;
+        }
+        const next: Record<number, DirectionalRate> = {};
+        const units: Record<number, Record<SpeedDirection, SpeedUnit>> = {};
+        for (const [id, rate] of Object.entries(result.obj as Record<string, unknown>)) {
+          const value =
+            rate && typeof rate === 'object' ? (rate as Partial<DirectionalRate>) : null;
+          const upKbps = Number(value?.upKbps ?? rate) || 0;
+          const downKbps = Number(value?.downKbps ?? rate) || 0;
+          next[Number(id)] = { upKbps, downKbps };
+          units[Number(id)] = {
+            up: upKbps > 0 && upKbps < 1000 ? 'Kbps' : 'Mbps',
+            down: downKbps > 0 && downKbps < 1000 ? 'Kbps' : 'Mbps',
+          };
+        }
+        setInboundRates(next);
+        setInboundRateUnits(units);
+        setLinkedRatesLoaded(true);
+      })
+      .catch(() => {
+        if (!cancelled) setLinkedSettingsFailed(true);
+      });
+    void HttpUtil.get(
+      `/panel/api/clients/${encodeURIComponent(client.email)}/windowQuotas`,
+      undefined,
+      { silent: true },
+    )
+      .then((result) => {
+        if (cancelled) return;
+        if (!result?.success || !result.obj || typeof result.obj !== 'object') {
+          setLinkedSettingsFailed(true);
+          return;
+        }
+        const next: Record<number, InboundWindowQuotaRow> = {};
+        for (const [id, raw] of Object.entries(result.obj as Record<string, unknown>)) {
+          const value = raw as {
+            quotaBytes?: number;
+            hours?: number;
+            mode?: string;
+            windowExhaustAction?: string;
+            windowExhaustUpKbps?: number;
+            windowExhaustDownKbps?: number;
+            windowOverageMultiplierBps?: number;
+          };
+          next[Number(id)] = {
+            quotaBytes: Number(value.quotaBytes) || 0,
+            quotaGB: bytesToGB(Number(value.quotaBytes) || 0),
+            hours: Number(value.hours) || 2,
+            mode: value.mode === 'rolling' ? 'rolling' : 'fixed',
+            windowExhaustAction: value.windowExhaustAction === 'throttle' ? 'throttle' : 'stop',
+            windowExhaustUpKbps: Number(value.windowExhaustUpKbps) || 0,
+            windowExhaustDownKbps: Number(value.windowExhaustDownKbps) || 0,
+            windowOverageMultiplierBps: Number(value.windowOverageMultiplierBps) || 10000,
+          };
+        }
+        setInboundQuotas(next);
+        setLinkedQuotasLoaded(true);
+      })
+      .catch(() => {
+        if (!cancelled) setLinkedSettingsFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, isEdit, client?.email]);
   const [resetting, setResetting] = useState(false);
   const [clientIps, setClientIps] = useState<ClientIpInfo[]>([]);
   const [ipsLoading, setIpsLoading] = useState(false);
@@ -363,6 +487,7 @@ export default function ClientFormModal({
 
   useEffect(() => {
     if (!open) return;
+    setActiveTab('basic');
     setIpsModalOpen(false);
     setHwidsModalOpen(false);
 
@@ -389,6 +514,23 @@ export default function ClientFormModal({
             : client.security,
         reverseTag: client.reverse?.tag || '',
         totalGB: bytesToGB(client.totalGB || 0),
+        speedLimitUpKbps: Number(client.speedLimitUpKbps ?? client.speedLimitKbps) || 0,
+        speedLimitDownKbps: Number(client.speedLimitDownKbps ?? client.speedLimitKbps) || 0,
+        windowQuotaGB: bytesToGB(client.windowQuotaBytes || 0),
+        windowHours: Number(client.windowHours) || 2,
+        windowMode: client.windowMode === 'rolling' ? 'rolling' : 'fixed',
+        totalExhaustAction: client.totalExhaustAction === 'throttle' ? 'throttle' : 'stop',
+        totalExhaustUpKbps: Number(client.totalExhaustUpKbps) || 0,
+        totalExhaustDownKbps: Number(client.totalExhaustDownKbps) || 0,
+        totalOverageMultiplierBps: Number(client.totalOverageMultiplierBps) || 10000,
+        windowExhaustAction: client.windowExhaustAction === 'throttle' ? 'throttle' : 'stop',
+        windowExhaustUpKbps: Number(client.windowExhaustUpKbps) || 0,
+        windowExhaustDownKbps: Number(client.windowExhaustDownKbps) || 0,
+        windowOverageMultiplierBps: Number(client.windowOverageMultiplierBps) || 10000,
+        graceHours: Number(client.graceHours) || 0,
+        graceUpKbps: Number(client.graceUpKbps) || 0,
+        graceDownKbps: Number(client.graceDownKbps) || 0,
+        graceQuotaGB: bytesToGB(Number(client.graceQuotaBytes) || 0),
         reset: Number(client.reset) || 0,
         resetDay: Number(client.resetDay) || 0,
         resetMax: Number(client.resetMax) || 0,
@@ -400,17 +542,6 @@ export default function ClientFormModal({
         group: client.group || '',
         comment: client.comment || '',
         enable: !!client.enable,
-        speedLimitUp: Number(client.speedLimitUp) || 0,
-        speedLimitDown: Number(client.speedLimitDown) || 0,
-        depletionAction: (client.depletionAction as ClientFormValues['depletionAction']) || '',
-        depletionSpeed: Number(client.depletionSpeed) || 0,
-        depletionGraceDays: Number(client.depletionGraceDays) || 0,
-        depletionPeriod: (client.depletionPeriod as ClientFormValues['depletionPeriod']) || 'never',
-        depletionPeriodGB: bytesToGB(Number(client.depletionPeriodGB) || 0),
-        windowQuotaGB: bytesToGB(Number(client.windowQuotaGB) || 0),
-        windowMinutes: Number(client.windowMinutes) || 0,
-        windowAction: (client.windowAction as ClientFormValues['windowAction']) || '',
-        windowSpeed: Number(client.windowSpeed) || 0,
         inboundIds: Array.isArray(attachedIds) ? [...attachedIds] : [],
         externalLinks: toExternalLinkRows(attachedExternalLinks),
         wgPrivateKey: client.privateKey || '',
@@ -433,10 +564,15 @@ export default function ClientFormModal({
         seed.expiryDate = et > 0 ? et : 0;
       }
       methods.reset(seed);
+      setSpeedUnits({
+        up: seed.speedLimitUpKbps > 0 && seed.speedLimitUpKbps < 1000 ? 'Kbps' : 'Mbps',
+        down: seed.speedLimitDownKbps > 0 && seed.speedLimitDownKbps < 1000 ? 'Kbps' : 'Mbps',
+      });
       void loadIps();
       void loadHwids();
     } else {
       const wgKeypair = Wireguard.generateKeypair();
+      setSpeedUnits({ up: 'Mbps', down: 'Mbps' });
       methods.reset({
         ...EMPTY,
         email: RandomUtil.randomLowerAndNum(10),
@@ -492,9 +628,17 @@ export default function ClientFormModal({
     return ids;
   }, [inbounds]);
 
+  const sidecarSpeedIds = useMemo(
+    () => new Set([...mtprotoIds, ...tuicIds]),
+    [mtprotoIds, tuicIds],
+  );
+
   const hasTuic = useMemo(
     () => (inboundIds || []).some((id) => tuicIds.has(id)),
     [inboundIds, tuicIds],
+  );
+  const hasUnsupportedGraceInbound = (inboundIds || []).some(
+    (id) => mtprotoIds.has(id) || tuicIds.has(id) || amneziawgIds.has(id),
   );
 
   const mtprotoDomain = useMemo(() => {
@@ -604,9 +748,9 @@ export default function ClientFormModal({
         .filter((ib) => MULTI_CLIENT_PROTOCOLS.has(ib.protocol || ''))
         .filter((ib) => ib.enable || (inboundIds || []).includes(ib.id))
         .map((ib) => ({
-          label: formatInboundLabel(ib.tag, ib.remark),
+          label: formatInboundOptionLabel(ib),
           value: ib.id,
-          title: formatInboundLabel(ib.tag, ib.remark),
+          title: formatInboundOptionLabel(ib),
         })),
     [inbounds, inboundIds],
   );
@@ -667,6 +811,20 @@ export default function ClientFormModal({
     onOpenChange(false);
   }
 
+  function reportSavedPolicyFailure(reason?: string) {
+    // The base create/update already committed. Close the form so a user does
+    // not retry "Add" and collide with the client that now exists.
+    const summary = t(
+      isEdit
+        ? 'pages.clients.toasts.updatedPolicyPending'
+        : 'pages.clients.toasts.createdPolicyPending',
+    );
+    // The form may unmount as soon as close() updates its parent. Use the
+    // page-level message holder so this warning remains visible afterward.
+    getMessage().warning({ content: reason ? `${summary} ${reason}` : summary, duration: 10 });
+    close();
+  }
+
   async function onResetTraffic() {
     if (!isEdit || !client?.email || !resetTraffic) return;
     setResetting(true);
@@ -684,6 +842,11 @@ export default function ClientFormModal({
 
   async function onSubmit() {
     const values = methods.getValues();
+    if (!linkedSettingsReady) {
+      setActiveTab('associated-inbounds');
+      messageApi.error(t('pages.clients.policy.linkedSettingsUnavailable'));
+      return;
+    }
     const schema = isEdit ? ClientFormSchema : ClientCreateFormSchema;
     const validated = schema.safeParse({
       email: values.email,
@@ -695,6 +858,23 @@ export default function ClientFormModal({
       security: values.security,
       reverseTag: values.reverseTag,
       totalGB: values.totalGB,
+      speedLimitUpKbps: values.speedLimitUpKbps,
+      speedLimitDownKbps: values.speedLimitDownKbps,
+      windowQuotaGB: values.windowQuotaGB,
+      windowHours: values.windowHours,
+      windowMode: values.windowMode,
+      totalExhaustAction: values.totalExhaustAction,
+      totalExhaustUpKbps: values.totalExhaustUpKbps,
+      totalExhaustDownKbps: values.totalExhaustDownKbps,
+      totalOverageMultiplierBps: values.totalOverageMultiplierBps,
+      windowExhaustAction: values.windowExhaustAction,
+      windowExhaustUpKbps: values.windowExhaustUpKbps,
+      windowExhaustDownKbps: values.windowExhaustDownKbps,
+      windowOverageMultiplierBps: values.windowOverageMultiplierBps,
+      graceHours: values.graceHours,
+      graceUpKbps: values.graceUpKbps,
+      graceDownKbps: values.graceDownKbps,
+      graceQuotaGB: values.graceQuotaGB,
       delayedStart: values.delayedStart,
       delayedDays: values.delayedDays,
       reset: values.reset,
@@ -709,21 +889,62 @@ export default function ClientFormModal({
       comment: values.comment,
       enable: values.enable,
       inboundIds: values.inboundIds,
-      speedLimitUp: values.speedLimitUp,
-      speedLimitDown: values.speedLimitDown,
-      depletionAction: values.depletionAction,
-      depletionSpeed: values.depletionSpeed,
-      depletionGraceDays: values.depletionGraceDays,
-      depletionPeriod: values.depletionPeriod,
-      depletionPeriodGB: values.depletionPeriodGB,
-      windowQuotaGB: values.windowQuotaGB,
-      windowMinutes: values.windowMinutes,
-      windowAction: values.windowAction,
-      windowSpeed: values.windowSpeed,
     });
     if (!validated.success) {
       const issue = validated.error.issues[0];
+      if (issue?.path[0] === 'inboundIds') setActiveTab('associated-inbounds');
       messageApi.error(t(issue?.message ?? 'somethingWentWrong'));
+      return;
+    }
+    if (values.windowQuotaGB > 0 && values.windowHours < 1) {
+      messageApi.error(
+        t('pages.clients.windowHoursRequired', {
+          defaultValue: 'Set a window length for this quota.',
+        }),
+      );
+      return;
+    }
+    if (
+      (values.totalExhaustAction === 'throttle' &&
+        (values.totalExhaustUpKbps <= 0 || values.totalExhaustDownKbps <= 0)) ||
+      (values.windowExhaustAction === 'throttle' &&
+        (values.windowExhaustUpKbps <= 0 || values.windowExhaustDownKbps <= 0))
+    ) {
+      messageApi.error(t('pages.clients.policy.throttleSpeedRequired'));
+      return;
+    }
+    if (values.graceHours > 0 && (values.graceUpKbps <= 0 || values.graceDownKbps <= 0)) {
+      setActiveTab('basic');
+      messageApi.error(t('pages.clients.policy.graceLimitsRequired'));
+      return;
+    }
+    if (
+      values.graceHours > 0 &&
+      !(values.delayedStart ? Number(values.delayedDays) > 0 : Number(values.expiryDate) > 0)
+    ) {
+      setActiveTab('basic');
+      messageApi.error(t('pages.clients.policy.graceExpiryRequired'));
+      return;
+    }
+    if (
+      (values.inboundIds || [])
+        .filter((id) => !tuicIds.has(id))
+        .some((id) => {
+          const quota = inboundQuotas[id];
+          return (
+            quota &&
+            (quota.quotaGB < 0 ||
+              quota.hours < 1 ||
+              quota.hours > 8760 ||
+              (quota.windowExhaustAction === 'throttle' &&
+                (quota.windowExhaustUpKbps <= 0 || quota.windowExhaustDownKbps <= 0)) ||
+              quota.windowOverageMultiplierBps < 10000 ||
+              quota.windowOverageMultiplierBps > 1000000)
+          );
+        })
+    ) {
+      setActiveTab('associated-inbounds');
+      messageApi.error(t('pages.clients.policy.inboundInvalid'));
       return;
     }
     const expiryTime = values.delayedStart
@@ -740,6 +961,24 @@ export default function ClientFormModal({
       flow: showFlow ? values.flow || '' : '',
       security: showSecurity ? values.security || 'auto' : 'auto',
       totalGB: totalBytes,
+      speedLimitKbps: 0,
+      speedLimitUpKbps: Number(values.speedLimitUpKbps) || 0,
+      speedLimitDownKbps: Number(values.speedLimitDownKbps) || 0,
+      windowQuotaBytes: resolveTotalBytes(client?.windowQuotaBytes, values.windowQuotaGB),
+      windowHours: values.windowHours,
+      windowMode: values.windowMode,
+      totalExhaustAction: values.totalExhaustAction,
+      totalExhaustUpKbps: values.totalExhaustUpKbps,
+      totalExhaustDownKbps: values.totalExhaustDownKbps,
+      totalOverageMultiplierBps: values.totalOverageMultiplierBps,
+      windowExhaustAction: values.windowExhaustAction,
+      windowExhaustUpKbps: values.windowExhaustUpKbps,
+      windowExhaustDownKbps: values.windowExhaustDownKbps,
+      windowOverageMultiplierBps: values.windowOverageMultiplierBps,
+      graceHours: values.graceHours,
+      graceUpKbps: values.graceUpKbps,
+      graceDownKbps: values.graceDownKbps,
+      graceQuotaBytes: resolveTotalBytes(client?.graceQuotaBytes, values.graceQuotaGB),
       expiryTime,
       reset: Number(values.reset) || 0,
       resetDay: Number(values.resetDay) || 0,
@@ -752,25 +991,6 @@ export default function ClientFormModal({
       group: values.group,
       comment: values.comment,
       enable: !!values.enable,
-      speedLimitUp: Number(values.speedLimitUp) || 0,
-      speedLimitDown: Number(values.speedLimitDown) || 0,
-      depletionAction: values.depletionAction || '',
-      depletionSpeed:
-        values.depletionAction === 'throttle' ? Number(values.depletionSpeed) || 0 : 0,
-      depletionGraceDays:
-        values.depletionAction === 'throttle' ? Number(values.depletionGraceDays) || 0 : 0,
-      depletionPeriod:
-        values.depletionAction === 'throttle' && values.depletionPeriod !== 'never'
-          ? values.depletionPeriod
-          : '',
-      depletionPeriodGB:
-        values.depletionAction === 'throttle' && values.depletionPeriod !== 'never'
-          ? gbToBytes(Number(values.depletionPeriodGB) || 0)
-          : 0,
-      windowQuotaGB: values.windowMinutes > 0 ? gbToBytes(Number(values.windowQuotaGB) || 0) : 0,
-      windowMinutes: Number(values.windowMinutes) || 0,
-      windowAction: values.windowMinutes > 0 ? values.windowAction || '' : '',
-      windowSpeed: values.windowMinutes > 0 ? Number(values.windowSpeed) || 0 : 0,
     };
     const reverseTagValue = showReverseTag ? (values.reverseTag || '').trim() : '';
     if (reverseTagValue) {
@@ -857,7 +1077,57 @@ export default function ClientFormModal({
           { isEdit: false, email: clientPayload.email as string, externalLinks },
         );
       }
-      if (msg?.success) close();
+      if (msg?.success) {
+        const rates = Object.fromEntries(
+          (values.inboundIds || [])
+            .filter((id) => !sidecarSpeedIds.has(id))
+            .map((id) => [id, inboundRates[id] || { upKbps: 0, downKbps: 0 }]),
+        );
+        const rateMsg = await HttpUtil.post(
+          `/panel/api/clients/${encodeURIComponent(values.email.trim())}/directionalRates`,
+          { rates },
+          { headers: { 'Content-Type': 'application/json' }, silent: true },
+        );
+        if (!rateMsg?.success) {
+          reportSavedPolicyFailure(rateMsg?.msg || t('somethingWentWrong'));
+          return;
+        }
+        const quotas = Object.fromEntries(
+          (values.inboundIds || [])
+            .filter((id) => !tuicIds.has(id))
+            .map((id) => {
+              const quota = inboundQuotas[id];
+              return [
+                id,
+                {
+                  quotaBytes: resolveTotalBytes(quota?.quotaBytes, quota?.quotaGB || 0),
+                  hours: quota?.hours || 2,
+                  mode: quota?.mode || 'fixed',
+                  windowExhaustAction: quota?.windowExhaustAction || 'stop',
+                  windowExhaustUpKbps: quota?.windowExhaustUpKbps || 0,
+                  windowExhaustDownKbps: quota?.windowExhaustDownKbps || 0,
+                  windowOverageMultiplierBps: quota?.windowOverageMultiplierBps || 10000,
+                },
+              ];
+            }),
+        );
+        const quotaMsg = await HttpUtil.post(
+          `/panel/api/clients/${encodeURIComponent(values.email.trim())}/windowQuotas`,
+          { quotas },
+          { headers: { 'Content-Type': 'application/json' }, silent: true },
+        );
+        if (quotaMsg?.success) {
+          getMessage().success(
+            msg.msg ||
+              t(
+                isEdit
+                  ? 'pages.inbounds.toasts.inboundClientUpdateSuccess'
+                  : 'pages.inbounds.toasts.inboundClientAddSuccess',
+              ),
+          );
+          close();
+        } else reportSavedPolicyFailure(quotaMsg?.msg || t('somethingWentWrong'));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -911,7 +1181,8 @@ export default function ClientFormModal({
         <FormProvider {...methods}>
           <Form layout="vertical">
             <Tabs
-              defaultActiveKey="basic"
+              activeKey={activeTab}
+              onChange={setActiveTab}
               items={[
                 {
                   key: 'basic',
@@ -954,6 +1225,46 @@ export default function ClientFormModal({
                             <InputNumber min={0} step={1} style={{ width: '100%' }} />
                           </FormField>
                         </Col>
+                        {(['up', 'down'] as const).map((direction) => {
+                          const unit = speedUnits[direction];
+                          const kbps = direction === 'up' ? speedLimitUpKbps : speedLimitDownKbps;
+                          return (
+                            <Col xs={24} md={12} key={direction}>
+                              <Form.Item
+                                label={t(
+                                  `pages.clients.speedLimit${direction === 'up' ? 'Up' : 'Down'}`,
+                                )}
+                                extra={t('pages.inbounds.xrayOnlyHint')}
+                              >
+                                <InputNumber
+                                  value={kbps / (unit === 'Mbps' ? 1000 : 1)}
+                                  min={0}
+                                  max={unit === 'Mbps' ? 1000000 : 1000000000}
+                                  precision={unit === 'Mbps' ? 3 : 0}
+                                  onChange={(v) =>
+                                    methods.setValue(
+                                      direction === 'up'
+                                        ? 'speedLimitUpKbps'
+                                        : 'speedLimitDownKbps',
+                                      Math.round((Number(v) || 0) * (unit === 'Mbps' ? 1000 : 1)),
+                                    )
+                                  }
+                                  addonAfter={
+                                    <Select
+                                      value={unit}
+                                      options={[{ value: 'Mbps' }, { value: 'Kbps' }]}
+                                      onChange={(next) =>
+                                        setSpeedUnits((prev) => ({ ...prev, [direction]: next }))
+                                      }
+                                      style={{ width: 92 }}
+                                    />
+                                  }
+                                  style={{ width: '100%' }}
+                                />
+                              </Form.Item>
+                            </Col>
+                          );
+                        })}
                         <Col xs={24} md={12}>
                           <Form.Item
                             label={t('pages.clients.limitIp')}
@@ -1016,185 +1327,6 @@ export default function ClientFormModal({
                             </Space.Compact>
                           </Form.Item>
                         </Col>
-                      </Row>
-
-                      <Row gutter={16}>
-                        <Col xs={24} md={12}>
-                          <Form.Item
-                            label={t('pages.clients.speedLimitDown')}
-                            tooltip={t('pages.clients.speedLimitDownDesc')}
-                          >
-                            <Space.Compact style={{ display: 'flex' }}>
-                              <InputNumber
-                                min={0}
-                                style={{ flex: 1 }}
-                                value={speedLimitDown / speedUnitFactor}
-                                onChange={(v) =>
-                                  methods.setValue(
-                                    'speedLimitDown',
-                                    Math.round((Number(v) || 0) * speedUnitFactor),
-                                  )
-                                }
-                              />
-                              <Select
-                                value={speedUnit}
-                                style={{ width: 92 }}
-                                onChange={(u) => setSpeedUnit(u)}
-                                options={[
-                                  { value: 'Kbps', label: 'Kbps' },
-                                  { value: 'Mbps', label: 'Mbps' },
-                                ]}
-                              />
-                            </Space.Compact>
-                          </Form.Item>
-                        </Col>
-                        <Col xs={24} md={12}>
-                          <Form.Item
-                            label={t('pages.clients.speedLimitUp')}
-                            tooltip={t('pages.clients.speedLimitUpDesc')}
-                          >
-                            <Space.Compact style={{ display: 'flex' }}>
-                              <InputNumber
-                                min={0}
-                                style={{ flex: 1 }}
-                                value={speedLimitUp / speedUnitFactor}
-                                onChange={(v) =>
-                                  methods.setValue(
-                                    'speedLimitUp',
-                                    Math.round((Number(v) || 0) * speedUnitFactor),
-                                  )
-                                }
-                              />
-                              <Select
-                                value={speedUnit}
-                                style={{ width: 92 }}
-                                onChange={(u) => setSpeedUnit(u)}
-                                options={[
-                                  { value: 'Kbps', label: 'Kbps' },
-                                  { value: 'Mbps', label: 'Mbps' },
-                                ]}
-                              />
-                            </Space.Compact>
-                          </Form.Item>
-                        </Col>
-                      </Row>
-
-                      <Row gutter={16}>
-                        <Col xs={24} md={12}>
-                          <FormField
-                            name="depletionAction"
-                            label={t('pages.clients.depletionAction')}
-                            tooltip={t('pages.clients.depletionActionDesc')}
-                          >
-                            <Select options={bandwidthActionOptions} />
-                          </FormField>
-                        </Col>
-                        {depletionAction === 'throttle' && (
-                          <Col xs={24} md={12}>
-                            <FormField
-                              name="depletionSpeed"
-                              label={t('pages.clients.depletionSpeed')}
-                              tooltip={t('pages.clients.depletionSpeedDesc')}
-                              transform={{ output: (v) => Number(v) || 0 }}
-                            >
-                              <InputNumber
-                                min={0}
-                                style={{ width: '100%' }}
-                                addonAfter={speedUnit}
-                              />
-                            </FormField>
-                          </Col>
-                        )}
-                        {depletionAction === 'throttle' && (
-                          <Col xs={24} md={12}>
-                            <FormField
-                              name="depletionGraceDays"
-                              label={t('pages.clients.depletionGraceDays')}
-                              tooltip={t('pages.clients.depletionGraceDaysDesc')}
-                              transform={{ output: (v) => Number(v) || 0 }}
-                            >
-                              <InputNumber
-                                min={0}
-                                style={{ width: '100%' }}
-                                addonAfter={t('pages.clients.days')}
-                              />
-                            </FormField>
-                          </Col>
-                        )}
-                        {depletionAction === 'throttle' && (
-                          <Col xs={24} md={12}>
-                            <FormField
-                              name="depletionPeriod"
-                              label={t('pages.clients.depletionPeriod')}
-                              tooltip={t('pages.clients.depletionPeriodDesc')}
-                            >
-                              <Select
-                                options={PLAN_PERIODS.map((r) => ({
-                                  value: r,
-                                  label: t(`pages.inbounds.periodicTrafficReset.${r}`),
-                                }))}
-                              />
-                            </FormField>
-                          </Col>
-                        )}
-                        {depletionAction === 'throttle' && depletionPeriod !== 'never' && (
-                          <Col xs={24} md={12}>
-                            <FormField
-                              name="depletionPeriodGB"
-                              label={t('pages.clients.depletionPeriodGB')}
-                              tooltip={t('pages.clients.depletionPeriodGBDesc')}
-                              transform={{ output: (v) => Number(v) || 0 }}
-                            >
-                              <InputNumber min={0} style={{ width: '100%' }} />
-                            </FormField>
-                          </Col>
-                        )}
-                      </Row>
-
-                      <Row gutter={16}>
-                        <Col xs={24} md={8}>
-                          <FormField
-                            name="windowQuotaGB"
-                            label={t('pages.clients.windowQuotaGB')}
-                            tooltip={t('pages.clients.windowQuotaGBDesc')}
-                            transform={{ output: (v) => Number(v) || 0 }}
-                          >
-                            <InputNumber min={0} step={0.1} style={{ width: '100%' }} />
-                          </FormField>
-                        </Col>
-                        <Col xs={24} md={8}>
-                          <FormField
-                            name="windowMinutes"
-                            label={t('pages.clients.windowMinutes')}
-                            tooltip={t('pages.clients.windowMinutesDesc')}
-                            transform={{ output: (v) => Number(v) || 0 }}
-                          >
-                            <InputNumber min={0} style={{ width: '100%' }} />
-                          </FormField>
-                        </Col>
-                        {windowMinutes > 0 && (
-                          <Col xs={24} md={8}>
-                            <FormField
-                              name="windowAction"
-                              label={t('pages.clients.windowAction')}
-                              tooltip={t('pages.clients.windowActionDesc')}
-                            >
-                              <Select options={bandwidthActionOptions} />
-                            </FormField>
-                          </Col>
-                        )}
-                        {windowMinutes > 0 && windowAction === 'throttle' && (
-                          <Col xs={24} md={8}>
-                            <FormField
-                              name="windowSpeed"
-                              label={t('pages.clients.windowSpeed')}
-                              tooltip={t('pages.clients.windowSpeedDesc')}
-                              transform={{ output: (v) => Number(v) || 0 }}
-                            >
-                              <InputNumber min={0} style={{ width: '100%' }} addonAfter="Kbps" />
-                            </FormField>
-                          </Col>
-                        )}
                       </Row>
 
                       <Row gutter={16}>
@@ -1286,6 +1418,87 @@ export default function ClientFormModal({
                         )}
                       </Row>
 
+                      <section className="client-expiry-action">
+                        <Typography.Title level={5}>
+                          {t('pages.clients.policy.graceTitle')}
+                        </Typography.Title>
+                        <Typography.Paragraph type="secondary">
+                          {t('pages.clients.policy.graceHint')}
+                        </Typography.Paragraph>
+                        {hasUnsupportedGraceInbound && (
+                          <Typography.Paragraph type="warning">
+                            {t('pages.clients.policy.graceProtocolHint')}
+                          </Typography.Paragraph>
+                        )}
+                        <Form.Item label={t('pages.clients.policy.graceEnable')}>
+                          <Switch
+                            checked={graceHours > 0}
+                            disabled={!hasExpiry && graceHours <= 0}
+                            onChange={(checked) => {
+                              methods.setValue('graceHours', checked ? 24 : 0);
+                              if (checked) {
+                                if (Number(methods.getValues('graceUpKbps')) <= 0)
+                                  methods.setValue('graceUpKbps', 128);
+                                if (Number(methods.getValues('graceDownKbps')) <= 0)
+                                  methods.setValue('graceDownKbps', 128);
+                              }
+                            }}
+                          />
+                        </Form.Item>
+                        {graceHours > 0 && (
+                          <Row gutter={16}>
+                            <Col xs={24} md={8}>
+                              <Form.Item label={t('pages.clients.policy.graceDays')}>
+                                <InputNumber
+                                  value={Math.round((graceHours / 24) * 100) / 100}
+                                  min={0.04}
+                                  max={365}
+                                  step={1}
+                                  precision={2}
+                                  onChange={(days) =>
+                                    methods.setValue(
+                                      'graceHours',
+                                      Math.max(1, Math.round((Number(days) || 1) * 24)),
+                                    )
+                                  }
+                                  style={{ width: '100%' }}
+                                />
+                              </Form.Item>
+                            </Col>
+                            <Col xs={24} md={8}>
+                              <FormField
+                                name="graceUpKbps"
+                                label={t('pages.clients.policy.graceUploadKbps')}
+                                transform={{ output: (v) => Number(v) || 0 }}
+                              >
+                                <InputNumber
+                                  min={1}
+                                  max={1000000000}
+                                  precision={0}
+                                  addonAfter="Kbps"
+                                  style={{ width: '100%' }}
+                                />
+                              </FormField>
+                            </Col>
+                            <Col xs={24} md={8}>
+                              <FormField
+                                name="graceDownKbps"
+                                label={t('pages.clients.policy.graceDownloadKbps')}
+                                transform={{ output: (v) => Number(v) || 0 }}
+                              >
+                                <InputNumber
+                                  min={1}
+                                  max={1000000000}
+                                  precision={0}
+                                  addonAfter="Kbps"
+                                  style={{ width: '100%' }}
+                                />
+                              </FormField>
+                            </Col>
+                          </Row>
+                        )}
+                      </section>
+
                       <Row gutter={16}>
                         <Col xs={24} md={12}>
                           <FormField name="comment" label={t('pages.clients.comment')}>
@@ -1335,30 +1548,6 @@ export default function ClientFormModal({
                           )}
                         </Row>
                       )}
-
-                      <Form.Item label={t('pages.clients.attachedInbounds')} required={!isEdit}>
-                        <SelectAllClearButtons
-                          options={inboundOptions}
-                          value={inboundIds}
-                          onChange={(v) => methods.setValue('inboundIds', v)}
-                        />
-                        <Select
-                          mode="multiple"
-                          value={inboundIds}
-                          onChange={(v) => methods.setValue('inboundIds', v)}
-                          options={inboundOptions}
-                          placeholder={t('pages.clients.selectInbound')}
-                          maxTagCount="responsive"
-                          placement="topLeft"
-                          listHeight={220}
-                          showSearch={{
-                            filterOption: (input, option) =>
-                              ((option?.label as string) || '')
-                                .toLowerCase()
-                                .includes(input.toLowerCase()),
-                          }}
-                        />
-                      </Form.Item>
 
                       <Form.Item>
                         <Switch
@@ -1599,6 +1788,348 @@ export default function ClientFormModal({
                           >
                             <Input allowClear placeholder="0123456789abcdef0123456789abcdef" />
                           </FormField>
+                        </>
+                      )}
+                    </>
+                  ),
+                },
+                {
+                  key: 'advanced-quota',
+                  label: t('pages.clients.tabAdvancedQuota', { defaultValue: 'Advanced quota' }),
+                  children: (
+                    <>
+                      <Typography.Paragraph type="secondary">
+                        {t('pages.clients.windowQuotaHint', {
+                          defaultValue:
+                            'The window quota limits usage within each time window. The overall traffic quota remains in effect.',
+                        })}
+                      </Typography.Paragraph>
+                      <FormField
+                        name="windowQuotaGB"
+                        label={t('pages.clients.windowQuotaGB', {
+                          defaultValue: 'Window traffic (GB, 0 = unlimited)',
+                        })}
+                        transform={{ output: (v) => Number(v) || 0 }}
+                      >
+                        <InputNumber min={0} precision={2} style={{ width: '100%' }} />
+                      </FormField>
+                      <FormField
+                        name="windowHours"
+                        label={t('pages.clients.windowHours', {
+                          defaultValue: 'Window length (hours)',
+                        })}
+                        transform={{ output: (v) => Number(v) || 0 }}
+                      >
+                        <InputNumber min={1} max={8760} precision={0} style={{ width: '100%' }} />
+                      </FormField>
+                      <FormField
+                        name="windowMode"
+                        label={t('pages.clients.windowMode', { defaultValue: 'Window mode' })}
+                      >
+                        <Select
+                          options={[
+                            {
+                              value: 'fixed',
+                              label: t('pages.clients.windowFixed', {
+                                defaultValue: 'Fixed window',
+                              }),
+                            },
+                            {
+                              value: 'rolling',
+                              label: t('pages.clients.windowRolling', {
+                                defaultValue: 'Rolling window',
+                              }),
+                            },
+                          ]}
+                        />
+                      </FormField>
+                      <ClientPolicyFields />
+                      {graceHours > 0 && (
+                        <FormField
+                          name="graceQuotaGB"
+                          label={t('pages.clients.policy.graceQuotaGB')}
+                          tooltip={t('pages.clients.policy.graceQuotaHint')}
+                          transform={{ output: (v) => Number(v) || 0 }}
+                        >
+                          <InputNumber min={0} precision={2} style={{ width: '100%' }} />
+                        </FormField>
+                      )}
+                    </>
+                  ),
+                },
+                {
+                  key: 'associated-inbounds',
+                  label: t('pages.clients.tabAssociatedInbounds'),
+                  children: (
+                    <>
+                      <Typography.Paragraph type="secondary">
+                        {t('pages.clients.associatedInboundHint')}
+                      </Typography.Paragraph>
+                      <Form.Item label={t('pages.clients.attachedInbounds')} required={!isEdit}>
+                        <SelectAllClearButtons
+                          options={inboundOptions}
+                          value={inboundIds}
+                          onChange={(v) => methods.setValue('inboundIds', v)}
+                        />
+                        <Select
+                          mode="multiple"
+                          value={inboundIds}
+                          onChange={(v) => methods.setValue('inboundIds', v)}
+                          options={inboundOptions}
+                          placeholder={t('pages.clients.selectInbound')}
+                          maxTagCount="responsive"
+                          placement="topLeft"
+                          listHeight={220}
+                          showSearch={{
+                            filterOption: (input, option) =>
+                              ((option?.label as string) || '')
+                                .toLowerCase()
+                                .includes(input.toLowerCase()),
+                          }}
+                        />
+                      </Form.Item>
+
+                      {(inboundIds || []).some((id) => sidecarSpeedIds.has(id)) && (
+                        <Typography.Paragraph type="secondary">
+                          {t('pages.clients.sidecarLinkedPolicyHint')}
+                        </Typography.Paragraph>
+                      )}
+
+                      {!linkedSettingsReady ? (
+                        <Typography.Paragraph type="secondary">
+                          {linkedSettingsFailed
+                            ? t('pages.clients.policy.linkedSettingsUnavailable')
+                            : t('loading')}
+                        </Typography.Paragraph>
+                      ) : (
+                        <>
+                          {(inboundIds || []).some((id) => !sidecarSpeedIds.has(id)) && (
+                            <Typography.Title level={5}>
+                              {t('pages.clients.associatedInboundSpeedTitle')}
+                            </Typography.Title>
+                          )}
+                          {(inboundIds || [])
+                            .filter((id) => !sidecarSpeedIds.has(id))
+                            .map((id) => {
+                              const option = inbounds.find((item) => item.id === id);
+                              return (
+                                <div key={id}>
+                                  <Typography.Text strong>
+                                    {option ? formatInboundOptionLabel(option) : `#${id}`}
+                                  </Typography.Text>
+                                  <Row gutter={12} style={{ marginTop: 8 }}>
+                                    {(['up', 'down'] as const).map((direction) => {
+                                      const unit = inboundRateUnits[id]?.[direction] || 'Mbps';
+                                      const field = direction === 'up' ? 'upKbps' : 'downKbps';
+                                      const kbps = inboundRates[id]?.[field] || 0;
+                                      return (
+                                        <Col xs={24} md={12} key={direction}>
+                                          <Form.Item
+                                            label={t(
+                                              `pages.clients.inboundSpeedLimit${direction === 'up' ? 'Up' : 'Down'}`,
+                                            )}
+                                            extra={t('pages.inbounds.xrayOnlyHint')}
+                                          >
+                                            <InputNumber
+                                              value={kbps / (unit === 'Mbps' ? 1000 : 1)}
+                                              min={0}
+                                              max={unit === 'Mbps' ? 1000000 : 1000000000}
+                                              precision={unit === 'Mbps' ? 3 : 0}
+                                              onChange={(v) =>
+                                                setInboundRates((prev) => ({
+                                                  ...prev,
+                                                  [id]: {
+                                                    upKbps: prev[id]?.upKbps || 0,
+                                                    downKbps: prev[id]?.downKbps || 0,
+                                                    [field]: Math.round(
+                                                      (Number(v) || 0) *
+                                                        (unit === 'Mbps' ? 1000 : 1),
+                                                    ),
+                                                  },
+                                                }))
+                                              }
+                                              addonAfter={
+                                                <Select
+                                                  value={unit}
+                                                  options={[{ value: 'Mbps' }, { value: 'Kbps' }]}
+                                                  onChange={(next) =>
+                                                    setInboundRateUnits((prev) => ({
+                                                      ...prev,
+                                                      [id]: {
+                                                        up: prev[id]?.up || 'Mbps',
+                                                        down: prev[id]?.down || 'Mbps',
+                                                        [direction]: next,
+                                                      },
+                                                    }))
+                                                  }
+                                                  style={{ width: 92 }}
+                                                />
+                                              }
+                                              style={{ width: '100%' }}
+                                            />
+                                          </Form.Item>
+                                        </Col>
+                                      );
+                                    })}
+                                  </Row>
+                                </div>
+                              );
+                            })}
+
+                          {(inboundIds || []).some((id) => !tuicIds.has(id)) && (
+                            <Typography.Title level={5}>
+                              {t('subscription.nodeQuota', { defaultValue: 'Quota by node' })}
+                            </Typography.Title>
+                          )}
+                          {(inboundIds || [])
+                            .filter((id) => !tuicIds.has(id))
+                            .map((id) => {
+                              const inbound = inbounds.find((item) => item.id === id);
+                              const isMtproto = mtprotoIds.has(id);
+                              const quota = inboundQuotas[id] || {
+                                quotaBytes: 0,
+                                quotaGB: 0,
+                                hours: 2,
+                                mode: 'fixed' as const,
+                                windowExhaustAction: 'stop' as const,
+                                windowExhaustUpKbps: 0,
+                                windowExhaustDownKbps: 0,
+                                windowOverageMultiplierBps: 10000,
+                              };
+                              const update = (patch: Partial<InboundWindowQuotaRow>) =>
+                                setInboundQuotas((prev) => ({
+                                  ...prev,
+                                  [id]: { ...quota, ...patch },
+                                }));
+                              return (
+                                <div
+                                  key={id}
+                                  style={{
+                                    border: '1px solid var(--ant-color-border)',
+                                    borderRadius: 8,
+                                    padding: 12,
+                                    marginBottom: 12,
+                                  }}
+                                >
+                                  <Typography.Text strong>
+                                    {inbound ? formatInboundOptionLabel(inbound) : `#${id}`}
+                                  </Typography.Text>
+                                  <Row gutter={12} style={{ marginTop: 8 }}>
+                                    <Col xs={24} md={8}>
+                                      <Form.Item label={t('pages.clients.windowQuotaGB')}>
+                                        <InputNumber
+                                          min={0}
+                                          precision={2}
+                                          value={quota.quotaGB}
+                                          onChange={(v) => update({ quotaGB: Number(v) || 0 })}
+                                          style={{ width: '100%' }}
+                                        />
+                                      </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={8}>
+                                      <Form.Item label={t('pages.clients.windowHours')}>
+                                        <InputNumber
+                                          min={1}
+                                          max={8760}
+                                          precision={0}
+                                          value={quota.hours}
+                                          onChange={(v) => update({ hours: Number(v) || 2 })}
+                                          style={{ width: '100%' }}
+                                        />
+                                      </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={8}>
+                                      <Form.Item label={t('pages.clients.windowMode')}>
+                                        <Select
+                                          value={quota.mode}
+                                          options={[
+                                            {
+                                              value: 'fixed',
+                                              label: t('pages.clients.windowFixed'),
+                                            },
+                                            {
+                                              value: 'rolling',
+                                              label: t('pages.clients.windowRolling'),
+                                            },
+                                          ]}
+                                          onChange={(mode) => update({ mode })}
+                                        />
+                                      </Form.Item>
+                                    </Col>
+                                  </Row>
+                                  <Form.Item
+                                    label={t('pages.clients.policy.afterQuota')}
+                                    extra={
+                                      isMtproto
+                                        ? t('pages.clients.policy.mtprotoWindowStopOnly')
+                                        : undefined
+                                    }
+                                  >
+                                    <Select
+                                      value={quota.windowExhaustAction}
+                                      options={[
+                                        { value: 'stop', label: t('pages.clients.policy.stop') },
+                                        {
+                                          value: 'throttle',
+                                          label: t('pages.clients.policy.throttle'),
+                                          disabled: isMtproto,
+                                        },
+                                      ]}
+                                      onChange={(windowExhaustAction) =>
+                                        update({ windowExhaustAction })
+                                      }
+                                    />
+                                  </Form.Item>
+                                  {quota.windowExhaustAction === 'throttle' && !isMtproto && (
+                                    <>
+                                      <Row gutter={12}>
+                                        <Col xs={24} md={12}>
+                                          <Form.Item label={t('pages.clients.policy.upload')}>
+                                            <PolicySpeedInput
+                                              value={quota.windowExhaustUpKbps}
+                                              onChange={(windowExhaustUpKbps) =>
+                                                update({ windowExhaustUpKbps })
+                                              }
+                                            />
+                                          </Form.Item>
+                                        </Col>
+                                        <Col xs={24} md={12}>
+                                          <Form.Item label={t('pages.clients.policy.download')}>
+                                            <PolicySpeedInput
+                                              value={quota.windowExhaustDownKbps}
+                                              onChange={(windowExhaustDownKbps) =>
+                                                update({ windowExhaustDownKbps })
+                                              }
+                                            />
+                                          </Form.Item>
+                                        </Col>
+                                      </Row>
+                                      <Form.Item
+                                        label={t('pages.clients.policy.multiplier')}
+                                        extra={t('pages.clients.policy.multiplierHint')}
+                                      >
+                                        <InputNumber
+                                          value={quota.windowOverageMultiplierBps / 10000}
+                                          min={1}
+                                          max={100}
+                                          step={0.01}
+                                          precision={2}
+                                          addonAfter="×"
+                                          onChange={(value) =>
+                                            update({
+                                              windowOverageMultiplierBps: Math.round(
+                                                (Number(value) || 1) * 10000,
+                                              ),
+                                            })
+                                          }
+                                          style={{ width: '100%' }}
+                                        />
+                                      </Form.Item>
+                                    </>
+                                  )}
+                                </div>
+                              );
+                            })}
                         </>
                       )}
                     </>

@@ -122,6 +122,10 @@ func (s *InboundService) ReconcileNode(ctx context.Context, rt *runtime.Remote, 
 		remoteTagSet[remoteIb.Tag] = struct{}{}
 	}
 	prefix := nodeTagPrefix(&nodeID)
+	centralByTag := make(map[string]*model.Inbound, len(inbounds))
+	for _, ib := range inbounds {
+		centralByTag[ib.Tag] = ib
+	}
 	desiredTags := make(map[string]struct{}, len(inbounds)*2)
 	var errs []error
 	for _, ib := range inbounds {
@@ -130,14 +134,22 @@ func (s *InboundService) ReconcileNode(ctx context.Context, rt *runtime.Remote, 
 		// tag forms it may be stored as? If so, an unchanged push can be skipped.
 		_, existsOnNode := remoteTagSet[ib.Tag]
 		if prefix != "" {
+			alias := prefix + ib.Tag
 			if stripped, found := strings.CutPrefix(ib.Tag, prefix); found {
+				alias = stripped
 				desiredTags[stripped] = struct{}{}
-				if _, ok := remoteTagSet[stripped]; ok {
-					existsOnNode = true
-				}
 			} else {
 				desiredTags[prefix+ib.Tag] = struct{}{}
-				if _, ok := remoteTagSet[prefix+ib.Tag]; ok {
+			}
+			if !existsOnNode {
+				if _, present := remoteTagSet[alias]; present {
+					// Never push two central rows into one remote inbound when
+					// one of them owns the reported tag exactly. A stale alias
+					// must be resolved explicitly to preserve clients and traffic.
+					if owner, claimed := centralByTag[alias]; claimed && owner.Id != ib.Id {
+						errs = append(errs, fmt.Errorf("reconcile inbound %q (#%d): remote tag %q belongs exactly to central inbound #%d", ib.Tag, ib.Id, alias, owner.Id))
+						continue
+					}
 					existsOnNode = true
 				}
 			}
@@ -175,6 +187,10 @@ func (s *InboundService) ReconcileNode(ctx context.Context, rt *runtime.Remote, 
 		}
 		if _, err := rt.ReconcileInbound(ctx, runtimeIb, existsOnNode); err != nil {
 			errs = append(errs, fmt.Errorf("reconcile inbound %q: %w", ib.Tag, err))
+			continue
+		}
+		if err := s.syncNodeInboundLinkPolicies(ctx, rt, ib); err != nil {
+			errs = append(errs, fmt.Errorf("reconcile inbound %q link policies: %w", ib.Tag, err))
 		}
 	}
 	// Before the next clean sync adopts the node's inbounds, "absent locally"
@@ -213,15 +229,17 @@ const resetGracePeriodMs int64 = 30000
 const onlineGracePeriodMs int64 = 20000
 
 type nodeTrafficCounter struct {
-	Up   int64
-	Down int64
+	Up       int64
+	Down     int64
+	Extra    int64
+	Discount int64
 }
 
-func (s *InboundService) upsertNodeBaseline(tx *gorm.DB, nodeID int, email string, up, down int64) error {
+func (s *InboundService) upsertNodeBaseline(tx *gorm.DB, nodeID int, email string, up, down, extra, discount int64) error {
 	return tx.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "node_id"}, {Name: "email"}},
-		DoUpdates: clause.AssignmentColumns([]string{"up", "down"}),
-	}).Create(&model.NodeClientTraffic{NodeId: nodeID, Email: email, Up: up, Down: down}).Error
+		DoUpdates: clause.AssignmentColumns([]string{"up", "down", "charge_extra_bytes", "charge_discount_bytes"}),
+	}).Create(&model.NodeClientTraffic{NodeId: nodeID, Email: email, Up: up, Down: down, ChargeExtraBytes: extra, ChargeDiscountBytes: discount}).Error
 }
 
 // mergeActivationExpiry: master absolute wins; node may only activate when
@@ -260,6 +278,42 @@ func nodeDisableIsStale(master *xray.ClientTraffic, node xray.ClientTraffic, now
 		return false
 	}
 	return masterLimitsAllowClient(master, now, deltaUp, deltaDown)
+}
+
+// A node that still enforces an old hard limit may report enable=false after
+// the master changed the account to slow overage or an active expiry grace.
+// Keep the master's enabled state unless a hard stop still applies there.
+func nodeDisableIsStaleWithPolicy(master *xray.ClientTraffic, node xray.ClientTraffic, policy *model.ClientRecord, now, deltaUp, deltaDown, deltaExtra int64, deltaDiscount ...int64) bool {
+	if master == nil || policy == nil {
+		return nodeDisableIsStale(master, node, now, deltaUp, deltaDown)
+	}
+	physicalBefore, chargedBefore := policyUsedBytes(master)
+	physicalAfter := saturatingPositiveSum(physicalBefore, saturatingPositiveSum(deltaUp, deltaDown))
+	chargedAfter := saturatingPositiveSum(chargedBefore, saturatingPositiveSum(saturatingPositiveSum(deltaUp, deltaDown), deltaExtra))
+	if len(deltaDiscount) > 0 {
+		chargedAfter = max(0, chargedAfter-deltaDiscount[0])
+	}
+	totalReached := master.Total > 0 && chargedAfter >= master.Total
+	if totalReached && effectivePolicyAction(policy.TotalExhaustAction) == "stop" {
+		return false
+	}
+	expired := master.ExpiryTime > 0 && master.ExpiryTime <= now
+	graceAvailable := false
+	if expired && policy.GraceHours > 0 {
+		graceEnds := master.ExpiryTime + int64(policy.GraceHours)*int64(time.Hour/time.Millisecond)
+		baseline := physicalBefore
+		if master.GraceBaselineExpiry == master.ExpiryTime {
+			baseline = master.GraceBaselineBytes
+		}
+		graceAvailable = now < graceEnds && (policy.GraceQuotaBytes == 0 || physicalAfter-baseline < policy.GraceQuotaBytes)
+	}
+	if expired && !graceAvailable {
+		return false
+	}
+	if graceAvailable || (totalReached && effectivePolicyAction(policy.TotalExhaustAction) == "throttle") {
+		return true
+	}
+	return nodeDisableIsStale(master, node, now, deltaUp, deltaDown)
 }
 
 func clampTrafficCounter(v int64) int64 {
@@ -401,7 +455,12 @@ func adoptedWireChanged(c, snapIb *model.Inbound, adoptedSettings string) bool {
 		c.ExpiryTime != snapIb.ExpiryTime ||
 		c.StreamSettings != snapIb.StreamSettings ||
 		c.Sniffing != snapIb.Sniffing ||
+		c.SpeedLimitKbps != snapIb.SpeedLimitKbps ||
+		!equalOptionalInt64(c.SpeedLimitUpKbps, snapIb.SpeedLimitUpKbps) ||
+		!equalOptionalInt64(c.SpeedLimitDownKbps, snapIb.SpeedLimitDownKbps) ||
+		model.EffectiveTrafficMultiplierBps(c.TrafficMultiplierBps) != model.EffectiveTrafficMultiplierBps(snapIb.TrafficMultiplierBps) ||
 		c.TrafficReset != snapIb.TrafficReset ||
+		c.TrafficResetInterval != snapIb.TrafficResetInterval ||
 		c.TrafficResetDay != normalizeTrafficResetDay(snapIb.TrafficResetDay)
 }
 
@@ -420,7 +479,12 @@ func adoptedWireInbound(c, snapIb *model.Inbound, adoptedSettings string) *model
 	a.Settings = adoptedSettings
 	a.StreamSettings = snapIb.StreamSettings
 	a.Sniffing = snapIb.Sniffing
+	a.SpeedLimitKbps = snapIb.SpeedLimitKbps
+	a.SpeedLimitUpKbps = snapIb.SpeedLimitUpKbps
+	a.SpeedLimitDownKbps = snapIb.SpeedLimitDownKbps
+	a.TrafficMultiplierBps = model.EffectiveTrafficMultiplierBps(snapIb.TrafficMultiplierBps)
 	a.TrafficReset = snapIb.TrafficReset
+	a.TrafficResetInterval = snapIb.TrafficResetInterval
 	a.TrafficResetDay = normalizeTrafficResetDay(snapIb.TrafficResetDay)
 	return &a
 }
@@ -506,20 +570,30 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 		Find(&central).Error; err != nil {
 		return false, err
 	}
-	// Index under the stored tag and its prefix-flipped form so a snap matches
-	// whether the n<id>- prefix lives on the node side, the central side, or
-	// neither — a mismatch must never spawn a duplicate central inbound.
+	// Index exact tags before adding prefix-flipped aliases. A node can really
+	// own both "foo" and "n<id>-foo" as separate inbounds; letting an alias
+	// overwrite either exact tag attributes both snapshots to one central row.
 	tagToCentral := make(map[string]*model.Inbound, len(central)*2)
 	prefix := nodeTagPrefix(&nodeID)
 	for i := range central {
 		tagToCentral[central[i].Tag] = &central[i]
+	}
+	for i := range central {
 		if prefix != "" {
+			alias := prefix + central[i].Tag
 			if stripped, found := strings.CutPrefix(central[i].Tag, prefix); found {
-				tagToCentral[stripped] = &central[i]
-			} else {
-				tagToCentral[prefix+central[i].Tag] = &central[i]
+				alias = stripped
+			}
+			if _, occupied := tagToCentral[alias]; !occupied {
+				tagToCentral[alias] = &central[i]
 			}
 		}
+	}
+	// Capture a durable baseline before adding this node snapshot's first
+	// post-expiry bytes. Remote-only clients do not necessarily receive a local
+	// Xray poll, so the local traffic writer cannot do this for them.
+	if err := captureGraceBaselines(db, time.UnixMilli(now)); err != nil {
+		return false, err
 	}
 
 	var centralClientStats []xray.ClientTraffic
@@ -544,6 +618,23 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 		centralCS[csKey{centralClientStats[i].InboundId, centralClientStats[i].Email}] = &centralClientStats[i]
 		centralCSByEmail[centralClientStats[i].Email] = &centralClientStats[i]
 	}
+	clientPolicyByEmail := make(map[string]model.ClientRecord, len(centralCSByEmail))
+	if len(centralCSByEmail) > 0 {
+		emails := make([]string, 0, len(centralCSByEmail))
+		for email := range centralCSByEmail {
+			emails = append(emails, email)
+		}
+		for _, batch := range chunkStrings(emails, sqliteMaxVars) {
+			var policies []model.ClientRecord
+			if err := db.Select("email", "total_exhaust_action", "grace_hours", "grace_quota_bytes").
+				Where("email IN ?", batch).Find(&policies).Error; err != nil {
+				return false, err
+			}
+			for _, policy := range policies {
+				clientPolicyByEmail[policy.Email] = policy
+			}
+		}
+	}
 
 	nodeBaselines := make(map[string]nodeTrafficCounter)
 	var baselineRows []model.NodeClientTraffic
@@ -553,7 +644,7 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 		return false, err
 	}
 	for i := range baselineRows {
-		nodeBaselines[baselineRows[i].Email] = nodeTrafficCounter{Up: baselineRows[i].Up, Down: baselineRows[i].Down}
+		nodeBaselines[baselineRows[i].Email] = nodeTrafficCounter{Up: baselineRows[i].Up, Down: baselineRows[i].Down, Extra: baselineRows[i].ChargeExtraBytes, Discount: baselineRows[i].ChargeDiscountBytes}
 	}
 
 	var defaultUserId int
@@ -594,6 +685,12 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 			}
 			if snapIb.ClientStats[i].Down > cur.Down {
 				cur.Down = snapIb.ClientStats[i].Down
+			}
+			if snapIb.ClientStats[i].ChargeExtraBytes > cur.Extra {
+				cur.Extra = snapIb.ClientStats[i].ChargeExtraBytes
+			}
+			if snapIb.ClientStats[i].ChargeDiscountBytes > cur.Discount {
+				cur.Discount = snapIb.ClientStats[i].ChargeDiscountBytes
 			}
 			nodeEmailTotals[email] = cur
 		}
@@ -730,7 +827,12 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 				Settings:             snapIb.Settings,
 				StreamSettings:       snapIb.StreamSettings,
 				Sniffing:             snapIb.Sniffing,
+				SpeedLimitKbps:       snapIb.SpeedLimitKbps,
+				SpeedLimitUpKbps:     snapIb.SpeedLimitUpKbps,
+				SpeedLimitDownKbps:   snapIb.SpeedLimitDownKbps,
+				TrafficMultiplierBps: model.EffectiveTrafficMultiplierBps(snapIb.TrafficMultiplierBps),
 				TrafficReset:         snapIb.TrafficReset,
+				TrafficResetInterval: snapIb.TrafficResetInterval,
 				TrafficResetDay:      normalizeTrafficResetDay(snapIb.TrafficResetDay),
 				LastTrafficResetTime: snapIb.LastTrafficResetTime,
 				Enable:               snapIb.Enable,
@@ -790,7 +892,12 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 			updates["expiry_time"] = snapIb.ExpiryTime
 			updates["stream_settings"] = snapIb.StreamSettings
 			updates["sniffing"] = snapIb.Sniffing
+			updates["speed_limit_kbps"] = snapIb.SpeedLimitKbps
+			updates["speed_limit_up_kbps"] = snapIb.SpeedLimitUpKbps
+			updates["speed_limit_down_kbps"] = snapIb.SpeedLimitDownKbps
+			updates["traffic_multiplier_bps"] = model.EffectiveTrafficMultiplierBps(snapIb.TrafficMultiplierBps)
 			updates["traffic_reset"] = snapIb.TrafficReset
+			updates["traffic_reset_interval"] = snapIb.TrafficResetInterval
 			updates["traffic_reset_day"] = normalizeTrafficResetDay(snapIb.TrafficResetDay)
 			updates["last_traffic_reset_time"] = snapIb.LastTrafficResetTime
 		}
@@ -924,13 +1031,19 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 			canon := nodeEmailTotals[cs.Email]
 
 			base, seen := nodeBaselines[cs.Email]
-			var deltaUp, deltaDown int64
+			var deltaUp, deltaDown, deltaExtra, deltaDiscount int64
 			if seen {
 				if deltaUp = canon.Up - base.Up; deltaUp < 0 {
 					deltaUp = 0
 				}
 				if deltaDown = canon.Down - base.Down; deltaDown < 0 {
 					deltaDown = 0
+				}
+				if deltaExtra = canon.Extra - base.Extra; deltaExtra < 0 {
+					deltaExtra = 0
+				}
+				if deltaDiscount = canon.Discount - base.Discount; deltaDiscount < 0 {
+					deltaDiscount = 0
 				}
 			}
 
@@ -947,21 +1060,23 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 				if !isNewInbound && isClientEmailTombstoned(cs.Email) {
 					continue
 				}
-				var seedUp, seedDown int64
+				var seedUp, seedDown, seedExtra, seedDiscount int64
 				if isNewInbound && !isClientEmailTombstoned(cs.Email) {
-					seedUp, seedDown = canon.Up, canon.Down
+					seedUp, seedDown, seedExtra, seedDiscount = canon.Up, canon.Down, canon.Extra, canon.Discount
 				}
 				row := &xray.ClientTraffic{
-					InboundId:  c.Id,
-					Email:      cs.Email,
-					Enable:     cs.Enable,
-					Total:      cs.Total,
-					ExpiryTime: cs.ExpiryTime,
-					Reset:      cs.Reset,
-					ResetDay:   cs.ResetDay,
-					Up:         seedUp,
-					Down:       seedDown,
-					LastOnline: cs.LastOnline,
+					InboundId:           c.Id,
+					Email:               cs.Email,
+					Enable:              cs.Enable,
+					Total:               cs.Total,
+					ExpiryTime:          cs.ExpiryTime,
+					Reset:               cs.Reset,
+					ResetDay:            cs.ResetDay,
+					Up:                  seedUp,
+					Down:                seedDown,
+					ChargeExtraBytes:    seedExtra,
+					ChargeDiscountBytes: seedDiscount,
+					LastOnline:          cs.LastOnline,
 				}
 				if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "email"}}, DoNothing: true}).
 					Create(row).Error; err != nil {
@@ -971,20 +1086,26 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 				centralCSByEmail[cs.Email] = row
 				existingEmails[cs.Email] = struct{}{}
 				structuralChange = true
-				if err := s.upsertNodeBaseline(tx, nodeID, cs.Email, canon.Up, canon.Down); err != nil {
+				if err := s.upsertNodeBaseline(tx, nodeID, cs.Email, canon.Up, canon.Down, canon.Extra, canon.Discount); err != nil {
 					return false, err
 				}
-				nodeBaselines[cs.Email] = nodeTrafficCounter{Up: canon.Up, Down: canon.Down}
+				nodeBaselines[cs.Email] = nodeTrafficCounter{Up: canon.Up, Down: canon.Down, Extra: canon.Extra, Discount: canon.Discount}
 				continue
 			}
 
 			existing := centralCSByEmail[cs.Email]
+			policyValue, hasPolicy := clientPolicyByEmail[cs.Email]
+			var clientPolicy *model.ClientRecord
+			if hasPolicy {
+				clientPolicy = &policyValue
+			}
+			nodeDisableStale := nodeDisableIsStaleWithPolicy(existing, cs, clientPolicy, now, deltaUp, deltaDown, deltaExtra, deltaDiscount)
 			if existing != nil {
 				expiryChanged := !lifecycleFrozen && existing.ExpiryTime != mergeActivationExpiry(existing.ExpiryTime, cs.ExpiryTime)
 				// Only a real latch to disabled is structural; one-way merge never
 				// re-enables from the node.
 				enableChanged := !lifecycleFrozen && existing.Enable && !cs.Enable &&
-					!nodeDisableIsStale(existing, cs, now, deltaUp, deltaDown)
+					!nodeDisableStale
 				metaChanged := !lifecycleFrozen && (existing.Total != cs.Total || existing.Reset != cs.Reset)
 				if enableChanged || metaChanged || expiryChanged {
 					structuralChange = true
@@ -1008,13 +1129,15 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 				if err := tx.Exec(
 					fmt.Sprintf(
 						`UPDATE client_traffics
-						 SET up = ?, down = ?, enable = ?, total = ?,
-						     expiry_time = ?, reset = ?, reset_day = ?, reset_count = ?, last_online = %s
+						 SET up = ?, down = ?, charge_extra_bytes = ?, charge_discount_bytes = ?, enable = ?, total = ?,
+						     expiry_time = ?, reset = ?, reset_day = ?, reset_count = ?,
+						     quota_epoch = ?, grace_baseline_bytes = 0, grace_baseline_expiry = 0,
+						     last_online = %s
 						 WHERE email = ?`,
 						database.GreatestExpr("last_online", "?"),
 					),
-					canon.Up, canon.Down, cs.Enable, cs.Total,
-					cs.ExpiryTime, cs.Reset, cs.ResetDay, cs.ResetCount,
+					canon.Up, canon.Down, canon.Extra, canon.Discount, cs.Enable, cs.Total,
+					cs.ExpiryTime, cs.Reset, cs.ResetDay, cs.ResetCount, time.Now().UnixNano(),
 					cs.LastOnline, cs.Email,
 				).Error; err != nil {
 					return false, err
@@ -1024,6 +1147,8 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 				}
 				existing.Up = canon.Up
 				existing.Down = canon.Down
+				existing.ChargeExtraBytes = canon.Extra
+				existing.ChargeDiscountBytes = canon.Discount
 				existing.Enable = cs.Enable
 				existing.Total = cs.Total
 				existing.ExpiryTime = cs.ExpiryTime
@@ -1036,38 +1161,47 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 				if err := tx.Exec(
 					fmt.Sprintf(
 						`UPDATE client_traffics
-						 SET up = %s, down = %s, last_online = %s
+						 SET up = %s, down = %s, charge_extra_bytes = %s, charge_discount_bytes = %s, last_online = %s
 						 WHERE email = ?`,
 						database.ClampedAddExpr("up"),
 						database.ClampedAddExpr("down"),
+						database.ClampedAddExpr("charge_extra_bytes"),
+						database.ClampedAddExpr("charge_discount_bytes"),
 						database.GreatestExpr("last_online", "?"),
 					),
-					deltaUp, deltaDown, cs.LastOnline, cs.Email,
+					deltaUp, deltaDown, deltaExtra, deltaDiscount, cs.LastOnline, cs.Email,
 				).Error; err != nil {
 					return false, err
 				}
 				if existing != nil {
 					existing.Up = clampTrafficCounter(existing.Up + deltaUp)
 					existing.Down = clampTrafficCounter(existing.Down + deltaDown)
+					existing.ChargeExtraBytes = clampTrafficCounter(existing.ChargeExtraBytes + deltaExtra)
+					existing.ChargeDiscountBytes = clampTrafficCounter(existing.ChargeDiscountBytes + deltaDiscount)
 				}
 			} else {
-				enableExpr := database.ClientTrafficEnableMergeExpr()
+				// The old SQL expression knows only hard expiry and physical
+				// traffic. Feed the policy-aware verdict into the atomic merge so
+				// a stale node cannot latch a slow-overage/grace client disabled.
+				enableExpr := `CASE WHEN ? THEN ? ELSE enable END`
 				expiryExpr := database.ClientTrafficExpiryMergeExpr()
 				if err := tx.Exec(
 					fmt.Sprintf(
 						`UPDATE client_traffics
-						 SET up = %s, down = %s, enable = %s, total = ?,
+						 SET up = %s, down = %s, charge_extra_bytes = %s, charge_discount_bytes = %s, enable = %s, total = ?,
 						     expiry_time = %s,
 						     reset = ?, reset_day = ?, last_online = %s
 						 WHERE email = ?`,
 						database.ClampedAddExpr("up"),
 						database.ClampedAddExpr("down"),
+						database.ClampedAddExpr("charge_extra_bytes"),
+						database.ClampedAddExpr("charge_discount_bytes"),
 						enableExpr,
 						expiryExpr,
 						database.GreatestExpr("last_online", "?"),
 					),
-					deltaUp, deltaDown,
-					cs.Enable, cs.ExpiryTime, cs.Total, now, deltaUp, deltaDown,
+					deltaUp, deltaDown, deltaExtra, deltaDiscount,
+					!cs.Enable && !nodeDisableStale, false,
 					cs.Total,
 					cs.ExpiryTime, cs.Reset, cs.ResetDay,
 					cs.LastOnline, cs.Email,
@@ -1076,12 +1210,14 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 				}
 				if existing != nil {
 					priorExpiry := existing.ExpiryTime
-					if !cs.Enable && !nodeDisableIsStale(existing, cs, now, deltaUp, deltaDown) {
+					if !cs.Enable && !nodeDisableStale {
 						existing.Enable = false
 					}
 					existing.ExpiryTime = mergeActivationExpiry(priorExpiry, cs.ExpiryTime)
 					existing.Up = clampTrafficCounter(existing.Up + deltaUp)
 					existing.Down = clampTrafficCounter(existing.Down + deltaDown)
+					existing.ChargeExtraBytes = clampTrafficCounter(existing.ChargeExtraBytes + deltaExtra)
+					existing.ChargeDiscountBytes = clampTrafficCounter(existing.ChargeDiscountBytes + deltaDiscount)
 					existing.Total = cs.Total
 					existing.Reset = cs.Reset
 				}
@@ -1091,10 +1227,10 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 			if lifecycleFrozen && seen && (canon.Up < base.Up || canon.Down < base.Down) {
 				continue
 			}
-			if err := s.upsertNodeBaseline(tx, nodeID, cs.Email, canon.Up, canon.Down); err != nil {
+			if err := s.upsertNodeBaseline(tx, nodeID, cs.Email, canon.Up, canon.Down, canon.Extra, canon.Discount); err != nil {
 				return false, err
 			}
-			nodeBaselines[cs.Email] = nodeTrafficCounter{Up: canon.Up, Down: canon.Down}
+			nodeBaselines[cs.Email] = nodeTrafficCounter{Up: canon.Up, Down: canon.Down, Extra: canon.Extra, Discount: canon.Discount}
 		}
 
 		for k, existing := range centralCS {

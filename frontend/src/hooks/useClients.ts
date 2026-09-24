@@ -324,8 +324,8 @@ export function useClients(options: UseClientsOptions = {}) {
   }, []);
 
   const createMut = useMutation({
-    mutationFn: (payload: unknown) =>
-      HttpUtil.post('/panel/api/clients/add', payload, JSON_HEADERS),
+    mutationFn: ({ payload, silentSuccess }: { payload: unknown; silentSuccess: boolean }) =>
+      HttpUtil.post('/panel/api/clients/add', payload, { ...JSON_HEADERS, silentSuccess }),
     onSuccess: (msg) => {
       if (msg?.success) invalidateAll();
     },
@@ -348,8 +348,19 @@ export function useClients(options: UseClientsOptions = {}) {
   });
 
   const updateMut = useMutation({
-    mutationFn: ({ email, client }: { email: string; client: unknown }) =>
-      HttpUtil.post(`/panel/api/clients/update/${encodeURIComponent(email)}`, client, JSON_HEADERS),
+    mutationFn: ({
+      email,
+      client,
+      silentSuccess,
+    }: {
+      email: string;
+      client: unknown;
+      silentSuccess: boolean;
+    }) =>
+      HttpUtil.post(`/panel/api/clients/update/${encodeURIComponent(email)}`, client, {
+        ...JSON_HEADERS,
+        silentSuccess,
+      }),
     onSuccess: (msg) => {
       if (msg?.success) invalidateAll();
     },
@@ -534,11 +545,14 @@ export function useClients(options: UseClientsOptions = {}) {
     },
   });
 
-  const create = useCallback((payload: unknown) => createMut.mutateAsync(payload), [createMut]);
+  const create = useCallback(
+    (payload: unknown, silentSuccess = false) => createMut.mutateAsync({ payload, silentSuccess }),
+    [createMut],
+  );
   const update = useCallback(
-    (email: string, client: unknown) => {
+    (email: string, client: unknown, silentSuccess = false) => {
       if (!email) return Promise.resolve(null as unknown as Msg<unknown>);
-      return updateMut.mutateAsync({ email, client });
+      return updateMut.mutateAsync({ email, client, silentSuccess });
     },
     [updateMut],
   );

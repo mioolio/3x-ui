@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Progress, Tag, theme } from 'antd';
 
-import { IntlUtil, SizeFormatter } from '@/utils';
+import { IntlUtil } from '@/utils';
 import type { CalendarKind } from '@/utils';
 import { usagePercent } from './subPageModel';
 import type { SubStatus } from './subPageModel';
@@ -12,7 +12,6 @@ interface SubHeroProps {
   daysLeft: number | null;
   usedByte: number;
   totalByte: number;
-  historyByte: number;
   expireMs: number;
   lastOnlineMs: number;
   download: string;
@@ -30,6 +29,10 @@ const STATUS_TAGS: Record<SubStatus, { color: string; label: string }> = {
   expired: { color: 'red', label: 'subscription.expired' },
   depleted: { color: 'red', label: 'subscription.depleted' },
   disabled: { color: 'red', label: 'subscription.inactive' },
+  grace: { color: 'green', label: 'subscription.availableAfterExpiry' },
+  throttled: { color: 'green', label: 'subscription.active' },
+  blocked: { color: 'red', label: 'subscription.unavailable' },
+  mixed: { color: 'gold', label: 'subscription.mixedStatus' },
 };
 
 // FormatTraffic renders "37.60GB"; the amount and unit are sized apart.
@@ -43,7 +46,6 @@ export default function SubHero({
   daysLeft,
   usedByte,
   totalByte,
-  historyByte,
   expireMs,
   lastOnlineMs,
   download,
@@ -58,10 +60,16 @@ export default function SubHero({
   const { token } = theme.useToken();
 
   const hasQuota = totalByte > 0;
-  const healthy = status === 'active' || status === 'unlimited';
+  const healthy = status === 'active' || status === 'unlimited' || status === 'mixed';
   const pct = usagePercent(usedByte, totalByte);
   const ringColor =
-    !healthy || pct >= 90 ? token.colorError : pct >= 75 ? token.colorWarning : token.colorPrimary;
+    status === 'grace' || status === 'throttled' || status === 'mixed'
+      ? token.colorWarning
+      : !healthy || pct >= 90
+        ? token.colorError
+        : pct >= 75
+          ? token.colorWarning
+          : token.colorPrimary;
   const [amount, unit] = splitSize(hasQuota ? remained : used);
   const formatDate = (ms: number) => IntlUtil.formatDate(ms, datepicker, lang);
   const statusTag = STATUS_TAGS[status];
@@ -81,15 +89,6 @@ export default function SubHero({
     { key: 'down', label: t('subscription.downloaded'), value: <bdi>{download}</bdi> },
     { key: 'up', label: t('subscription.uploaded'), value: <bdi>{upload}</bdi> },
     { key: 'total', label: t('subscription.totalQuota'), value: <bdi>{total}</bdi> },
-    ...(historyByte > 0
-      ? [
-          {
-            key: 'history',
-            label: t('subscription.historyUsage'),
-            value: <bdi>{SizeFormatter.sizeFormat(historyByte)}</bdi>,
-          },
-        ]
-      : []),
     {
       key: 'lastOnline',
       label: t('lastOnline'),

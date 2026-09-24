@@ -72,6 +72,9 @@ func NewXrayTrafficJob() *XrayTrafficJob {
 // real-time updates over WebSocket using compact delta payloads — no REST
 // fallback, scales to 10k–20k+ clients per inbound.
 func (j *XrayTrafficJob) Run() {
+	if err := j.xrayService.RefreshRatePolicy(); err != nil {
+		logger.Warning("refresh Xray rate policy failed:", err)
+	}
 	if !j.xrayService.IsXrayRunning() {
 		return
 	}
@@ -82,6 +85,11 @@ func (j *XrayTrafficJob) Run() {
 	needRestart0, clientsDisabled, err := j.inboundService.AddTraffic(traffics, clientTraffics)
 	if err != nil {
 		logger.Warning("add inbound traffic failed:", err)
+	}
+	if err := j.xrayService.RecordWindowTraffic(clientTraffics, j.xrayService.LastInboundClientTraffic()); err != nil {
+		logger.Warning("record client window traffic failed:", err)
+	} else if err := j.xrayService.RefreshRatePolicy(); err != nil {
+		logger.Warning("refresh Xray window policy failed:", err)
 	}
 	err, needRestart1 := j.outboundService.AddTraffic(traffics, clientTraffics)
 	if err != nil {

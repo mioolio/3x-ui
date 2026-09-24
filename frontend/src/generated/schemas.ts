@@ -1441,39 +1441,6 @@ export const SCHEMAS: Record<string, unknown> = {
         "format": "int64",
         "type": "integer"
       },
-      "depletionAction": {
-        "description": "On quota/expiry exhaustion",
-        "enum": [
-          "disable",
-          "throttle"
-        ],
-        "type": "string"
-      },
-      "depletionGraceDays": {
-        "description": "Max days of depletion throttling; 0 = unlimited",
-        "minimum": 0,
-        "type": "integer"
-      },
-      "depletionPeriod": {
-        "description": "Traffic cap while depletion-throttled",
-        "enum": [
-          "daily",
-          "weekly",
-          "monthly"
-        ],
-        "type": "string"
-      },
-      "depletionPeriodGB": {
-        "description": "Bytes per depletion-throttle period",
-        "format": "int64",
-        "minimum": 0,
-        "type": "integer"
-      },
-      "depletionSpeed": {
-        "description": "Kbps while depletion-throttled",
-        "minimum": 0,
-        "type": "integer"
-      },
       "email": {
         "description": "Client email identifier",
         "type": "string"
@@ -1494,6 +1461,25 @@ export const SCHEMAS: Record<string, unknown> = {
       "forwardedPorts": {
         "description": "AmneziaWG per-client port-forwarding spec, e.g. \"80,443,8000-8100\"",
         "type": "string"
+      },
+      "graceDownKbps": {
+        "format": "int64",
+        "nullable": true,
+        "type": "integer"
+      },
+      "graceHours": {
+        "nullable": true,
+        "type": "integer"
+      },
+      "graceQuotaBytes": {
+        "format": "int64",
+        "nullable": true,
+        "type": "integer"
+      },
+      "graceUpKbps": {
+        "format": "int64",
+        "nullable": true,
+        "type": "integer"
       },
       "group": {
         "description": "Logical grouping label",
@@ -1554,14 +1540,19 @@ export const SCHEMAS: Record<string, unknown> = {
         "description": "Security method (e.g., \"auto\", \"aes-128-gcm\")",
         "type": "string"
       },
-      "speedLimitDown": {
-        "description": "Always-on cap, Kbps",
-        "minimum": 0,
+      "speedLimitDownKbps": {
+        "format": "int64",
+        "nullable": true,
         "type": "integer"
       },
-      "speedLimitUp": {
-        "description": "Per-client bandwidth controls, all opt-in: zero values keep the legacy\nbehaviour (unlimited speed, disable on depletion, no quota window).\nAlways-on cap, Kbps",
-        "minimum": 0,
+      "speedLimitKbps": {
+        "description": "Client maximum across attached inbounds; 0 is unlimited",
+        "format": "int64",
+        "type": "integer"
+      },
+      "speedLimitUpKbps": {
+        "format": "int64",
+        "nullable": true,
         "type": "integer"
       },
       "subId": {
@@ -1573,9 +1564,27 @@ export const SCHEMAS: Record<string, unknown> = {
         "format": "int64",
         "type": "integer"
       },
+      "totalExhaustAction": {
+        "nullable": true,
+        "type": "string"
+      },
+      "totalExhaustDownKbps": {
+        "format": "int64",
+        "nullable": true,
+        "type": "integer"
+      },
+      "totalExhaustUpKbps": {
+        "format": "int64",
+        "nullable": true,
+        "type": "integer"
+      },
       "totalGB": {
         "description": "Total traffic limit in GB",
         "format": "int64",
+        "type": "integer"
+      },
+      "totalOverageMultiplierBps": {
+        "nullable": true,
         "type": "integer"
       },
       "trafficReset": {
@@ -1599,28 +1608,35 @@ export const SCHEMAS: Record<string, unknown> = {
         "format": "int64",
         "type": "integer"
       },
-      "windowAction": {
-        "description": "On window overrun",
-        "enum": [
-          "disable",
-          "throttle"
-        ],
+      "windowExhaustAction": {
+        "nullable": true,
         "type": "string"
       },
-      "windowMinutes": {
-        "description": "Window length; 0 disables the quota",
-        "minimum": 0,
-        "type": "integer"
-      },
-      "windowQuotaGB": {
-        "description": "Bytes per sliding window, like totalGB",
+      "windowExhaustDownKbps": {
         "format": "int64",
-        "minimum": 0,
+        "nullable": true,
         "type": "integer"
       },
-      "windowSpeed": {
-        "description": "Kbps while window-throttled",
-        "minimum": 0,
+      "windowExhaustUpKbps": {
+        "format": "int64",
+        "nullable": true,
+        "type": "integer"
+      },
+      "windowHours": {
+        "description": "Window length in hours",
+        "type": "integer"
+      },
+      "windowMode": {
+        "description": "fixed or rolling",
+        "type": "string"
+      },
+      "windowOverageMultiplierBps": {
+        "nullable": true,
+        "type": "integer"
+      },
+      "windowQuotaBytes": {
+        "description": "Per-window quota, 0 disables it",
+        "format": "int64",
         "type": "integer"
       }
     },
@@ -1634,9 +1650,13 @@ export const SCHEMAS: Record<string, unknown> = {
       "resetDay",
       "resetMax",
       "security",
+      "speedLimitKbps",
       "subId",
       "tgId",
-      "totalGB"
+      "totalGB",
+      "windowHours",
+      "windowMode",
+      "windowQuotaBytes"
     ],
     "type": "object"
   },
@@ -1654,13 +1674,59 @@ export const SCHEMAS: Record<string, unknown> = {
       },
       "inboundId": {
         "type": "integer"
+      },
+      "speedLimitDownKbps": {
+        "format": "int64",
+        "nullable": true,
+        "type": "integer"
+      },
+      "speedLimitKbps": {
+        "format": "int64",
+        "type": "integer"
+      },
+      "speedLimitUpKbps": {
+        "format": "int64",
+        "nullable": true,
+        "type": "integer"
+      },
+      "windowExhaustAction": {
+        "type": "string"
+      },
+      "windowExhaustDownKbps": {
+        "format": "int64",
+        "type": "integer"
+      },
+      "windowExhaustUpKbps": {
+        "format": "int64",
+        "type": "integer"
+      },
+      "windowHours": {
+        "type": "integer"
+      },
+      "windowMode": {
+        "type": "string"
+      },
+      "windowOverageMultiplierBps": {
+        "type": "integer"
+      },
+      "windowQuotaBytes": {
+        "format": "int64",
+        "type": "integer"
       }
     },
     "required": [
       "clientId",
       "createdAt",
       "flowOverride",
-      "inboundId"
+      "inboundId",
+      "speedLimitKbps",
+      "windowExhaustAction",
+      "windowExhaustDownKbps",
+      "windowExhaustUpKbps",
+      "windowHours",
+      "windowMode",
+      "windowOverageMultiplierBps",
+      "windowQuotaBytes"
     ],
     "type": "object"
   },
@@ -1732,22 +1798,6 @@ export const SCHEMAS: Record<string, unknown> = {
         "format": "int64",
         "type": "integer"
       },
-      "depletionAction": {
-        "type": "string"
-      },
-      "depletionGraceDays": {
-        "type": "integer"
-      },
-      "depletionPeriod": {
-        "type": "string"
-      },
-      "depletionPeriodGB": {
-        "format": "int64",
-        "type": "integer"
-      },
-      "depletionSpeed": {
-        "type": "integer"
-      },
       "email": {
         "type": "string"
       },
@@ -1763,6 +1813,21 @@ export const SCHEMAS: Record<string, unknown> = {
       },
       "forwardedPorts": {
         "type": "string"
+      },
+      "graceDownKbps": {
+        "format": "int64",
+        "type": "integer"
+      },
+      "graceHours": {
+        "type": "integer"
+      },
+      "graceQuotaBytes": {
+        "format": "int64",
+        "type": "integer"
+      },
+      "graceUpKbps": {
+        "format": "int64",
+        "type": "integer"
       },
       "group": {
         "type": "string"
@@ -1807,10 +1872,18 @@ export const SCHEMAS: Record<string, unknown> = {
       "security": {
         "type": "string"
       },
-      "speedLimitDown": {
+      "speedLimitDownKbps": {
+        "format": "int64",
+        "nullable": true,
         "type": "integer"
       },
-      "speedLimitUp": {
+      "speedLimitKbps": {
+        "format": "int64",
+        "type": "integer"
+      },
+      "speedLimitUpKbps": {
+        "format": "int64",
+        "nullable": true,
         "type": "integer"
       },
       "subId": {
@@ -1820,8 +1893,22 @@ export const SCHEMAS: Record<string, unknown> = {
         "format": "int64",
         "type": "integer"
       },
+      "totalExhaustAction": {
+        "type": "string"
+      },
+      "totalExhaustDownKbps": {
+        "format": "int64",
+        "type": "integer"
+      },
+      "totalExhaustUpKbps": {
+        "format": "int64",
+        "type": "integer"
+      },
       "totalGB": {
         "format": "int64",
+        "type": "integer"
+      },
+      "totalOverageMultiplierBps": {
         "type": "integer"
       },
       "trafficReset": {
@@ -1837,17 +1924,28 @@ export const SCHEMAS: Record<string, unknown> = {
       "uuid": {
         "type": "string"
       },
-      "windowAction": {
+      "windowExhaustAction": {
         "type": "string"
       },
-      "windowMinutes": {
-        "type": "integer"
-      },
-      "windowQuotaGB": {
+      "windowExhaustDownKbps": {
         "format": "int64",
         "type": "integer"
       },
-      "windowSpeed": {
+      "windowExhaustUpKbps": {
+        "format": "int64",
+        "type": "integer"
+      },
+      "windowHours": {
+        "type": "integer"
+      },
+      "windowMode": {
+        "type": "string"
+      },
+      "windowOverageMultiplierBps": {
+        "type": "integer"
+      },
+      "windowQuotaBytes": {
+        "format": "int64",
         "type": "integer"
       }
     },
@@ -1857,16 +1955,15 @@ export const SCHEMAS: Record<string, unknown> = {
       "auth",
       "comment",
       "createdAt",
-      "depletionAction",
-      "depletionGraceDays",
-      "depletionPeriod",
-      "depletionPeriodGB",
-      "depletionSpeed",
       "email",
       "enable",
       "expiryTime",
       "flow",
       "forwardedPorts",
+      "graceDownKbps",
+      "graceHours",
+      "graceQuotaBytes",
+      "graceUpKbps",
       "group",
       "id",
       "keepAlive",
@@ -1882,19 +1979,25 @@ export const SCHEMAS: Record<string, unknown> = {
       "reverse",
       "secret",
       "security",
-      "speedLimitDown",
-      "speedLimitUp",
+      "speedLimitKbps",
       "subId",
       "tgId",
+      "totalExhaustAction",
+      "totalExhaustDownKbps",
+      "totalExhaustUpKbps",
       "totalGB",
+      "totalOverageMultiplierBps",
       "trafficReset",
       "trafficResetDay",
       "updatedAt",
       "uuid",
-      "windowAction",
-      "windowMinutes",
-      "windowQuotaGB",
-      "windowSpeed"
+      "windowExhaustAction",
+      "windowExhaustDownKbps",
+      "windowExhaustUpKbps",
+      "windowHours",
+      "windowMode",
+      "windowOverageMultiplierBps",
+      "windowQuotaBytes"
     ],
     "type": "object"
   },
@@ -2011,6 +2114,16 @@ export const SCHEMAS: Record<string, unknown> = {
   "ClientTraffic": {
     "description": "ClientTraffic represents traffic statistics and limits for a specific client.\nIt tracks upload/download usage, expiry times, and online status for inbound clients.",
     "properties": {
+      "chargeDiscountBytes": {
+        "description": "ChargeDiscountBytes is a nonnegative cumulative allowance credit from\nan inbound whose traffic multiplier is below 1x.",
+        "format": "int64",
+        "type": "integer"
+      },
+      "chargeExtraBytes": {
+        "description": "ChargeExtraBytes is the additional quota debit from configured overage\nmultipliers. Up/Down remain the physical transfer counters everywhere.",
+        "format": "int64",
+        "type": "integer"
+      },
       "down": {
         "example": 2097152,
         "format": "int64",
@@ -2026,17 +2139,6 @@ export const SCHEMAS: Record<string, unknown> = {
       },
       "expiryTime": {
         "example": 1735689600000,
-        "format": "int64",
-        "type": "integer"
-      },
-      "historyDown": {
-        "example": 20971520,
-        "format": "int64",
-        "type": "integer"
-      },
-      "historyUp": {
-        "description": "Lifetime counters: never reset by quota renewals or operator resets, so\nthe panel can show total historical usage per client. Cleared only when\nthe accounting row itself is deleted.",
-        "example": 10485760,
         "format": "int64",
         "type": "integer"
       },
@@ -2081,12 +2183,6 @@ export const SCHEMAS: Record<string, unknown> = {
         "example": "i7tvdpeffi0hvvf1",
         "type": "string"
       },
-      "throttledSince": {
-        "description": "When depletion throttling started (ms); 0 = not currently throttled.",
-        "example": 1735680000000,
-        "format": "int64",
-        "type": "integer"
-      },
       "total": {
         "example": 10737418240,
         "format": "int64",
@@ -2100,30 +2196,15 @@ export const SCHEMAS: Record<string, unknown> = {
       "uuid": {
         "example": "e18c9a96-71bf-48d4-933f-8b9a46d4290c",
         "type": "string"
-      },
-      "windowDisabled": {
-        "example": false,
-        "type": "boolean"
-      },
-      "windowStarted": {
-        "example": 1735680000000,
-        "format": "int64",
-        "type": "integer"
-      },
-      "windowUsed": {
-        "description": "Sliding-window quota state (per-client windowQuotaGB/windowMinutes).\nwindowStarted is the current window's opening time in ms; windowDisabled\nmarks a client switched off BY the window action so the slide can restore\nit without resurrecting an operator-disabled client.",
-        "example": 1048576,
-        "format": "int64",
-        "type": "integer"
       }
     },
     "required": [
+      "chargeDiscountBytes",
+      "chargeExtraBytes",
       "down",
       "email",
       "enable",
       "expiryTime",
-      "historyDown",
-      "historyUp",
       "id",
       "inboundId",
       "lastOnline",
@@ -2133,13 +2214,9 @@ export const SCHEMAS: Record<string, unknown> = {
       "resetDay",
       "resetMax",
       "subId",
-      "throttledSince",
       "total",
       "up",
-      "uuid",
-      "windowDisabled",
-      "windowStarted",
-      "windowUsed"
+      "uuid"
     ],
     "type": "object"
   },
@@ -2832,16 +2909,6 @@ export const SCHEMAS: Record<string, unknown> = {
         "description": "FallbackParent is populated by the API layer when this inbound is\nattached as a fallback child of a VLESS/Trojan TCP-TLS master.\nThe frontend uses it to rewrite client-share links so they advertise\nthe master's externally reachable endpoint instead of the child's\nloopback listen. Not persisted.",
         "nullable": true
       },
-      "historyDown": {
-        "description": "Lifetime download, never reset by traffic resets",
-        "format": "int64",
-        "type": "integer"
-      },
-      "historyUp": {
-        "description": "Lifetime upload, never reset by traffic resets",
-        "format": "int64",
-        "type": "integer"
-      },
       "id": {
         "description": "Unique identifier",
         "example": 1,
@@ -2863,29 +2930,6 @@ export const SCHEMAS: Record<string, unknown> = {
       "originNodeGuid": {
         "description": "OriginNodeGuid is the panelGuid of the node that physically hosts this\ninbound, propagated up across hops (#4983). Empty for an inbound that\nlives on this panel's own xray; set to the originating node's GUID when\nthe inbound was synced from a node (kept as-is across further hops). Lets\nthe master attribute a deeply nested inbound to the real node instead of\nthe intermediate one it was fetched through.",
         "type": "string"
-      },
-      "planAction": {
-        "enum": [
-          "disable",
-          "throttle"
-        ],
-        "type": "string"
-      },
-      "planPeriod": {
-        "description": "Per-inbound traffic plan, applied to every client on this inbound unless\nthe client carries its own stronger setting. All opt-in (zero values).\nPlan is a daily/weekly/monthly fence; Window is a short quota window in\nminutes (e.g. 500MB per 2h). Enforcement is per client, aligned to its\nfirst use.",
-        "enum": [
-          "daily",
-          "weekly",
-          "monthly"
-        ],
-        "type": "string"
-      },
-      "planQuotaGB": {
-        "format": "int64",
-        "type": "integer"
-      },
-      "planSpeed": {
-        "type": "integer"
       },
       "port": {
         "example": 443,
@@ -2930,6 +2974,23 @@ export const SCHEMAS: Record<string, unknown> = {
         "type": "string"
       },
       "sniffing": {},
+      "speedLimitDownKbps": {
+        "format": "int64",
+        "nullable": true,
+        "type": "integer"
+      },
+      "speedLimitKbps": {
+        "description": "Shared maximum bandwidth for all clients on this inbound; 0 is unlimited",
+        "format": "int64",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "speedLimitUpKbps": {
+        "description": "Nil inherits the legacy symmetric limit; zero explicitly removes this direction's limit",
+        "format": "int64",
+        "nullable": true,
+        "type": "integer"
+      },
       "streamSettings": {},
       "subSortIndex": {
         "description": "Sort order of this inbound's links in subscription output only (lower first; negatives allowed; 0/omitted → 1; ties by id)",
@@ -2943,6 +3004,10 @@ export const SCHEMAS: Record<string, unknown> = {
       "total": {
         "description": "Total traffic limit in bytes",
         "format": "int64",
+        "type": "integer"
+      },
+      "trafficMultiplierBps": {
+        "description": "10000 = 1x; 100 = 0.01x",
         "type": "integer"
       },
       "trafficReset": {
@@ -2963,26 +3028,15 @@ export const SCHEMAS: Record<string, unknown> = {
         "minimum": 1,
         "type": "integer"
       },
+      "trafficResetInterval": {
+        "description": "Number of hours, days or months between resets; 1 preserves legacy schedules",
+        "maximum": 10000,
+        "minimum": 1,
+        "type": "integer"
+      },
       "up": {
         "description": "Upload traffic in bytes",
         "format": "int64",
-        "type": "integer"
-      },
-      "windowAction": {
-        "enum": [
-          "disable",
-          "throttle"
-        ],
-        "type": "string"
-      },
-      "windowMinutes": {
-        "type": "integer"
-      },
-      "windowQuotaGB": {
-        "format": "int64",
-        "type": "integer"
-      },
-      "windowSpeed": {
         "type": "integer"
       }
     },
@@ -2992,8 +3046,6 @@ export const SCHEMAS: Record<string, unknown> = {
       "down",
       "enable",
       "expiryTime",
-      "historyDown",
-      "historyUp",
       "id",
       "lastTrafficResetTime",
       "listen",
@@ -3004,12 +3056,15 @@ export const SCHEMAS: Record<string, unknown> = {
       "shareAddr",
       "shareAddrStrategy",
       "sniffing",
+      "speedLimitKbps",
       "streamSettings",
       "subSortIndex",
       "tag",
       "total",
+      "trafficMultiplierBps",
       "trafficReset",
       "trafficResetDay",
+      "trafficResetInterval",
       "up"
     ],
     "type": "object"
@@ -3111,6 +3166,10 @@ export const SCHEMAS: Record<string, unknown> = {
         "description": "Hosting node; nil for this panel's own inbounds. Lets the clients\npage map a node filter onto inbound IDs (#4997).",
         "nullable": true,
         "type": "integer"
+      },
+      "nodeName": {
+        "description": "Display the hosting node alongside the inbound ID so two inbounds with\nthe same remark remain distinguishable in client attachment controls.",
+        "type": "string"
       },
       "port": {
         "example": 443,

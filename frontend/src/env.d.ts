@@ -18,14 +18,50 @@ interface SubPageData {
   subSupportUrl?: string;
   subUpdates?: number;
   links?: string[];
-  emails?: string[];
   datepicker?: 'gregorian' | 'jalalian';
   announce?: string;
   downloadByte?: string | number;
   uploadByte?: string | number;
   usedByte?: string | number;
-  historyByte?: string | number;
-  quota?: Record<string, string | number | undefined>;
+  windowQuota?: SubWindowStatus | null;
+  windowQuotas?: SubAccountWindowQuota[];
+  accountStates?: SubAccountPublicStatus[];
+  nodes?: SubNodeOverview[];
+  publicState?: 'active' | 'grace' | 'blocked' | 'mixed';
+}
+
+interface SubAccountPublicStatus {
+  accountIndex: number;
+  state: 'active' | 'grace' | 'blocked';
+  expiryMs: number;
+}
+
+interface SubNodeOverview {
+  inboundId: number;
+  accountIndex: number;
+  remark: string;
+  protocol: string;
+  maxUpKbps: number;
+  maxDownKbps: number;
+  trafficMultiplierBps: number;
+  usageTracked?: boolean;
+  windowConfigured?: boolean;
+  window?: SubWindowStatus | null;
+}
+
+interface SubAccountWindowQuota {
+  accountIndex: number;
+  window: SubWindowStatus;
+}
+
+interface SubWindowStatus {
+  quotaBytes: number;
+  usedBytes: number;
+  remainingBytes: number;
+  windowHours: number;
+  windowMode: 'fixed' | 'rolling';
+  windowStart: number;
+  resetAt: number;
 }
 
 interface Window {

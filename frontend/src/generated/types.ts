@@ -348,16 +348,15 @@ export interface Client {
   auth?: string;
   comment: string;
   created_at?: number;
-  depletionAction?: string;
-  depletionGraceDays?: number;
-  depletionPeriod?: string;
-  depletionPeriodGB?: number;
-  depletionSpeed?: number;
   email: string;
   enable: boolean;
   expiryTime: number;
   flow?: string;
   forwardedPorts?: string;
+  graceDownKbps?: number | null;
+  graceHours?: number | null;
+  graceQuotaBytes?: number | null;
+  graceUpKbps?: number | null;
   group?: string;
   id?: string;
   keepAlive?: number | null;
@@ -372,18 +371,26 @@ export interface Client {
   reverse?: ClientReverse | null;
   secret?: string;
   security: string;
-  speedLimitDown?: number;
-  speedLimitUp?: number;
+  speedLimitDownKbps?: number | null;
+  speedLimitKbps: number;
+  speedLimitUpKbps?: number | null;
   subId: string;
   tgId: number;
+  totalExhaustAction?: string | null;
+  totalExhaustDownKbps?: number | null;
+  totalExhaustUpKbps?: number | null;
   totalGB: number;
+  totalOverageMultiplierBps?: number | null;
   trafficReset?: string;
   trafficResetDay?: number;
   updated_at?: number;
-  windowAction?: string;
-  windowMinutes?: number;
-  windowQuotaGB?: number;
-  windowSpeed?: number;
+  windowExhaustAction?: string | null;
+  windowExhaustDownKbps?: number | null;
+  windowExhaustUpKbps?: number | null;
+  windowHours: number;
+  windowMode: string;
+  windowOverageMultiplierBps?: number | null;
+  windowQuotaBytes: number;
 }
 
 export interface ClientInbound {
@@ -391,6 +398,16 @@ export interface ClientInbound {
   createdAt: number;
   flowOverride: string;
   inboundId: number;
+  speedLimitDownKbps?: number | null;
+  speedLimitKbps: number;
+  speedLimitUpKbps?: number | null;
+  windowExhaustAction: string;
+  windowExhaustDownKbps: number;
+  windowExhaustUpKbps: number;
+  windowHours: number;
+  windowMode: string;
+  windowOverageMultiplierBps: number;
+  windowQuotaBytes: number;
 }
 
 export interface ClientPageResponse {
@@ -409,16 +426,15 @@ export interface ClientRecord {
   auth: string;
   comment: string;
   createdAt: number;
-  depletionAction: string;
-  depletionGraceDays: number;
-  depletionPeriod: string;
-  depletionPeriodGB: number;
-  depletionSpeed: number;
   email: string;
   enable: boolean;
   expiryTime: number;
   flow: string;
   forwardedPorts: string;
+  graceDownKbps: number;
+  graceHours: number;
+  graceQuotaBytes: number;
+  graceUpKbps: number;
   group: string;
   id: number;
   keepAlive: number;
@@ -434,19 +450,27 @@ export interface ClientRecord {
   reverse: unknown;
   secret: string;
   security: string;
-  speedLimitDown: number;
-  speedLimitUp: number;
+  speedLimitDownKbps?: number | null;
+  speedLimitKbps: number;
+  speedLimitUpKbps?: number | null;
   subId: string;
   tgId: number;
+  totalExhaustAction: string;
+  totalExhaustDownKbps: number;
+  totalExhaustUpKbps: number;
   totalGB: number;
+  totalOverageMultiplierBps: number;
   trafficReset: string;
   trafficResetDay: number;
   updatedAt: number;
   uuid: string;
-  windowAction: string;
-  windowMinutes: number;
-  windowQuotaGB: number;
-  windowSpeed: number;
+  windowExhaustAction: string;
+  windowExhaustDownKbps: number;
+  windowExhaustUpKbps: number;
+  windowHours: number;
+  windowMode: string;
+  windowOverageMultiplierBps: number;
+  windowQuotaBytes: number;
 }
 
 export interface ClientReverse {
@@ -473,12 +497,12 @@ export interface ClientSlim {
 }
 
 export interface ClientTraffic {
+  chargeDiscountBytes: number;
+  chargeExtraBytes: number;
   down: number;
   email: string;
   enable: boolean;
   expiryTime: number;
-  historyDown: number;
-  historyUp: number;
   id: number;
   inboundId: number;
   lastOnline: number;
@@ -488,13 +512,9 @@ export interface ClientTraffic {
   resetDay: number;
   resetMax: number;
   subId: string;
-  throttledSince: number;
   total: number;
   up: number;
   uuid: string;
-  windowDisabled: boolean;
-  windowStarted: number;
-  windowUsed: number;
 }
 
 export interface ClientsSummary {
@@ -647,17 +667,11 @@ export interface Inbound {
   enable: boolean;
   expiryTime: number;
   fallbackParent?: FallbackParentInfo | null;
-  historyDown: number;
-  historyUp: number;
   id: number;
   lastTrafficResetTime: number;
   listen: string;
   nodeId?: number | null;
   originNodeGuid?: string;
-  planAction?: string;
-  planPeriod?: string;
-  planQuotaGB?: number;
-  planSpeed?: number;
   port: number;
   protocol: Protocol;
   remark: string;
@@ -665,17 +679,18 @@ export interface Inbound {
   shareAddr: string;
   shareAddrStrategy: string;
   sniffing: unknown;
+  speedLimitDownKbps?: number | null;
+  speedLimitKbps: number;
+  speedLimitUpKbps?: number | null;
   streamSettings: unknown;
   subSortIndex: number;
   tag: string;
   total: number;
+  trafficMultiplierBps: number;
   trafficReset: string;
   trafficResetDay: number;
+  trafficResetInterval: number;
   up: number;
-  windowAction?: string;
-  windowMinutes?: number;
-  windowQuotaGB?: number;
-  windowSpeed?: number;
 }
 
 export interface InboundClientIps {
@@ -705,6 +720,7 @@ export interface InboundOption {
   network?: string;
   nodeAddress?: string;
   nodeId?: number | null;
+  nodeName?: string;
   port: number;
   protocol: string;
   remark: string;

@@ -72,6 +72,21 @@ func newAPIAuthTestEngine(t *testing.T) (*gin.Engine, *APIController) {
 	api.POST("/clients/:email/detach", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"reached": true})
 	})
+	api.POST("/clients/:email/rates", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"reached": true})
+	})
+	api.POST("/clients/:email/directionalRates", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"reached": true})
+	})
+	api.POST("/clients/:email/windowQuotas", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"reached": true})
+	})
+	api.GET("/clients/:email/windowStatus/:inboundId", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"reached": true})
+	})
+	api.POST("/clients/inbound/:id/linkPolicies", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"reached": true})
+	})
 	api.POST("/inbounds/:id/resetTraffic", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"reached": true})
 	})
@@ -142,28 +157,33 @@ func TestCheckAPIAuth_AcceptsVerifiedClientCert(t *testing.T) {
 
 func TestNodeSyncScopeAllowlistMatchesRemoteInventory(t *testing.T) {
 	expected := map[string]map[string]struct{}{
-		"/server/status":               {http.MethodGet: {}},
-		"/inbounds/list":               {http.MethodGet: {}},
-		"/inbounds/add":                {http.MethodPost: {}},
-		"/inbounds/del/:id":            {http.MethodPost: {}},
-		"/inbounds/update/:id":         {http.MethodPost: {}},
-		"/clients/add":                 {http.MethodPost: {}},
-		"/clients/del/:email":          {http.MethodPost: {}},
-		"/clients/:email/detach":       {http.MethodPost: {}},
-		"/clients/update/:email":       {http.MethodPost: {}},
-		"/server/restartXrayService":   {http.MethodPost: {}},
-		"/server/getWebCertFiles":      {http.MethodGet: {}},
-		"/server/descendants":          {http.MethodGet: {}},
-		"/clients/resetTraffic/:email": {http.MethodPost: {}},
-		"/inbounds/resetAllTraffics":   {http.MethodPost: {}},
-		"/inbounds/:id/resetTraffic":   {http.MethodPost: {}},
-		"/clients/onlinesByGuid":       {http.MethodPost: {}},
-		"/clients/onlines":             {http.MethodPost: {}},
-		"/clients/lastOnline":          {http.MethodPost: {}},
-		"/inbounds/pushClientTraffics": {http.MethodPost: {}},
-		"/server/clientIps":            {http.MethodGet: {}, http.MethodPost: {}},
-		"/clients/clientIpsByGuid":     {http.MethodPost: {}},
-		"/hosts/list":                  {http.MethodGet: {}},
+		"/server/status":                          {http.MethodGet: {}},
+		"/inbounds/list":                          {http.MethodGet: {}},
+		"/inbounds/add":                           {http.MethodPost: {}},
+		"/inbounds/del/:id":                       {http.MethodPost: {}},
+		"/inbounds/update/:id":                    {http.MethodPost: {}},
+		"/clients/add":                            {http.MethodPost: {}},
+		"/clients/del/:email":                     {http.MethodPost: {}},
+		"/clients/:email/detach":                  {http.MethodPost: {}},
+		"/clients/update/:email":                  {http.MethodPost: {}},
+		"/clients/:email/rates":                   {http.MethodPost: {}},
+		"/clients/:email/directionalRates":        {http.MethodPost: {}},
+		"/clients/:email/windowQuotas":            {http.MethodPost: {}},
+		"/clients/:email/windowStatus/:inboundId": {http.MethodGet: {}},
+		"/clients/inbound/:id/linkPolicies":       {http.MethodPost: {}},
+		"/server/restartXrayService":              {http.MethodPost: {}},
+		"/server/getWebCertFiles":                 {http.MethodGet: {}},
+		"/server/descendants":                     {http.MethodGet: {}},
+		"/clients/resetTraffic/:email":            {http.MethodPost: {}},
+		"/inbounds/resetAllTraffics":              {http.MethodPost: {}},
+		"/inbounds/:id/resetTraffic":              {http.MethodPost: {}},
+		"/clients/onlinesByGuid":                  {http.MethodPost: {}},
+		"/clients/onlines":                        {http.MethodPost: {}},
+		"/clients/lastOnline":                     {http.MethodPost: {}},
+		"/inbounds/pushClientTraffics":            {http.MethodPost: {}},
+		"/server/clientIps":                       {http.MethodGet: {}, http.MethodPost: {}},
+		"/clients/clientIpsByGuid":                {http.MethodPost: {}},
+		"/hosts/list":                             {http.MethodGet: {}},
 	}
 	if !reflect.DeepEqual(nodeSyncScopeAllow, expected) {
 		t.Fatalf("node-sync allowlist drift:\n got: %#v\nwant: %#v", nodeSyncScopeAllow, expected)
@@ -182,6 +202,11 @@ func TestNodeSyncScopeUsesFullPathPatterns(t *testing.T) {
 		want   int
 	}{
 		{"detach email parameter", http.MethodPost, "/panel/api/clients/alice@example.com/detach", http.StatusOK},
+		{"per-inbound speed", http.MethodPost, "/panel/api/clients/alice@example.com/rates", http.StatusOK},
+		{"directional speed", http.MethodPost, "/panel/api/clients/alice@example.com/directionalRates", http.StatusOK},
+		{"window quota", http.MethodPost, "/panel/api/clients/alice@example.com/windowQuotas", http.StatusOK},
+		{"window status", http.MethodGet, "/panel/api/clients/alice@example.com/windowStatus/42", http.StatusOK},
+		{"link policies", http.MethodPost, "/panel/api/clients/inbound/42/linkPolicies", http.StatusOK},
 		{"reset inbound id parameter", http.MethodPost, "/panel/api/inbounds/42/resetTraffic", http.StatusOK},
 		{"client IP by guid endpoint", http.MethodPost, "/panel/api/clients/clientIpsByGuid", http.StatusOK},
 		{"update panel forbidden", http.MethodPost, "/panel/api/server/updatePanel", http.StatusForbidden},

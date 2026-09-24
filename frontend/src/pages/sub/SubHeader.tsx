@@ -14,13 +14,11 @@ import { pauseAnimationsUntilLeave, useTheme } from '@/hooks/useTheme';
 
 interface SubHeaderProps {
   title: string;
-  sId: string;
-  email: string;
   lang: string;
   onLangChange: (lang: string) => void;
 }
 
-export default function SubHeader({ title, sId, email, lang, onLangChange }: SubHeaderProps) {
+export default function SubHeader({ title, lang, onLangChange }: SubHeaderProps) {
   const { t } = useTranslation();
   const { isDark, isUltra, toggleTheme, toggleUltra } = useTheme();
 
@@ -65,9 +63,6 @@ export default function SubHeader({ title, sId, email, lang, onLangChange }: Sub
         <div className="sub-brand-text">
           <div className="sub-brand-title" dir="auto">
             {title || t('subscription.title')}
-          </div>
-          <div className="sub-brand-id">
-            <bdi>{email ? `${sId} - ${email}` : sId}</bdi>
           </div>
         </div>
       </div>

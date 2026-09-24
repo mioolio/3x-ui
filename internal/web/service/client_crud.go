@@ -39,6 +39,9 @@ func validateClientEmail(email string) error {
 	if hasForbiddenClientChar(email) {
 		return common.NewError("client email contains an invalid character:", email)
 	}
+	if strings.HasPrefix(email, "mtproto-rate-") && strings.HasSuffix(email, "@loopback.invalid") {
+		return common.NewError("client email is reserved for the internal MTProto rate bridge:", email)
+	}
 	return nil
 }
 
@@ -59,6 +62,25 @@ func validateClientTrafficReset(period string, day int) error {
 	}
 	if day < 0 || day > 31 {
 		return common.NewError("client trafficResetDay must be between 0 and 31, got:", day)
+	}
+	return nil
+}
+
+func validateClientBandwidthAndWindow(c model.Client) error {
+	if c.SpeedLimitKbps < 0 || c.SpeedLimitKbps > 1000000000 {
+		return common.NewError("client speedLimitKbps must be between 0 and 1000000000")
+	}
+	if err := validateDirectionalRate("client", c.SpeedLimitUpKbps, c.SpeedLimitDownKbps); err != nil {
+		return err
+	}
+	if c.WindowQuotaBytes < 0 || c.WindowHours < 0 || c.WindowHours > 8760 {
+		return common.NewError("client window quota and hours must be within valid ranges")
+	}
+	if c.WindowQuotaBytes > 0 && c.WindowHours == 0 {
+		return common.NewError("client windowHours is required when windowQuotaBytes is set")
+	}
+	if c.WindowMode != "" && c.WindowMode != "fixed" && c.WindowMode != "rolling" {
+		return common.NewError("client windowMode must be fixed or rolling")
 	}
 	return nil
 }
@@ -90,46 +112,21 @@ func normalizeClientTrafficReset(c *model.Client) {
 	c.TrafficResetDay = normalizeTrafficResetDay(c.TrafficResetDay)
 }
 
-// Rejected rather than coerced: an unknown action string would silently fall
-// back to hard-disable in the traffic pipeline while the UI keeps showing the
-// operator's choice.
-func validateClientBandwidth(c *model.Client) error {
-	if c.SpeedLimitUp < 0 || c.SpeedLimitDown < 0 {
-		return common.NewError("client speed limits must not be negative")
-	}
-	for _, action := range []string{c.DepletionAction, c.WindowAction} {
-		switch action {
-		case "", "disable", "throttle":
-		default:
-			return common.NewError("client bandwidth action must be disable or throttle, got:", action)
-		}
-	}
-	if c.DepletionAction != "" && c.DepletionSpeed < 0 {
-		return common.NewError("client depletionSpeed must not be negative")
-	}
-	if c.WindowQuotaGB < 0 || c.WindowMinutes < 0 || c.WindowSpeed < 0 {
-		return common.NewError("client quota window fields must not be negative")
-	}
-	if c.WindowMinutes == 0 && (c.WindowQuotaGB != 0 || c.WindowAction != "" || c.WindowSpeed != 0) {
-		return common.NewError("client quota window requires windowMinutes > 0")
-	}
-	return nil
-}
-
 // ClientResetCycle is the slice of a client the reset job needs: enough to know
 // whether it is due, and whether its disable is the quota's doing or the operator's.
 type ClientResetCycle struct {
-	Email           string
-	TrafficResetDay int
-	Enable          bool
-	Total           int64
-	Used            int64
+	Email              string
+	TrafficResetDay    int
+	Enable             bool
+	Total              int64
+	Used               int64
+	TotalExhaustAction string
 }
 
 // Depleted reports a client the quota switched off. A reset restores that one;
 // a client disabled below its quota was switched off by hand and stays off.
 func (c ClientResetCycle) Depleted() bool {
-	return c.Total > 0 && c.Used >= c.Total
+	return c.Total > 0 && c.Used >= c.Total && c.TotalExhaustAction != "throttle"
 }
 
 // GetClientsByTrafficReset returns the clients whose own reset cycle matches the
@@ -137,7 +134,7 @@ func (c ClientResetCycle) Depleted() bool {
 func (s *ClientService) GetClientsByTrafficReset(period string) ([]ClientResetCycle, error) {
 	var cycles []ClientResetCycle
 	err := database.GetDB().Table("clients c").
-		Select("c.email, c.traffic_reset_day, c.enable, COALESCE(ct.total, 0) AS total, COALESCE(ct.up, 0) + COALESCE(ct.down, 0) AS used").
+		Select("c.email, c.traffic_reset_day, c.enable, c.total_exhaust_action, COALESCE(ct.total, 0) AS total, COALESCE(ct.up, 0) + COALESCE(ct.down, 0) + COALESCE(ct.charge_extra_bytes, 0) - COALESCE(ct.charge_discount_bytes, 0) AS used").
 		Joins("LEFT JOIN client_traffics ct ON ct.email = c.email").
 		Where("c.traffic_reset = ?", period).
 		Scan(&cycles).Error
@@ -172,7 +169,10 @@ func (s *ClientService) Create(inboundSvc *InboundService, payload *ClientCreate
 	if err := validateClientTrafficReset(client.TrafficReset, client.TrafficResetDay); err != nil {
 		return false, err
 	}
-	if err := validateClientBandwidth(&client); err != nil {
+	if err := validateClientBandwidthAndWindow(client); err != nil {
+		return false, err
+	}
+	if err := validateClientPolicy(client, nil); err != nil {
 		return false, err
 	}
 	normalizeClientTrafficReset(&client)
@@ -629,7 +629,10 @@ func (s *ClientService) Update(inboundSvc *InboundService, id int, updated model
 	if err := validateClientTrafficReset(updated.TrafficReset, updated.TrafficResetDay); err != nil {
 		return false, err
 	}
-	if err := validateClientBandwidth(&updated); err != nil {
+	if err := validateClientBandwidthAndWindow(updated); err != nil {
+		return false, err
+	}
+	if err := validateClientPolicy(updated, existing); err != nil {
 		return false, err
 	}
 	normalizeClientTrafficReset(&updated)
@@ -769,39 +772,46 @@ func (s *ClientService) Update(inboundSvc *InboundService, id int, updated model
 		if err := database.GetDB().Model(&model.ClientRecord{}).
 			Where("id = ?", id).
 			Updates(map[string]any{
-				"sub_id":            merged.SubID,
-				"uuid":              merged.UUID,
-				"password":          merged.Password,
-				"auth":              merged.Auth,
-				"secret":            merged.Secret,
-				"flow":              merged.Flow,
-				"security":          merged.Security,
-				"wg_private_key":    merged.PrivateKey,
-				"wg_public_key":     merged.PublicKey,
-				"wg_allowed_ips":    merged.AllowedIPs,
-				"wg_pre_shared_key": merged.PreSharedKey,
-				"wg_keep_alive":     merged.KeepAlive,
-				"limit_ip":          merged.LimitIP,
-				"total_gb":          merged.TotalGB,
-				"expiry_time":       merged.ExpiryTime,
-				"tg_id":             merged.TgID,
-				"comment":           merged.Comment,
-				"reset":             merged.Reset,
-				"reset_day":         merged.ResetDay,
-				"reset_max":         merged.ResetMax,
-				"traffic_reset":     merged.TrafficReset,
-				"traffic_reset_day": merged.TrafficResetDay,
-				"speed_limit_up":    merged.SpeedLimitUp,
-				"speed_limit_down":  merged.SpeedLimitDown,
-				"depletion_action":  merged.DepletionAction,
-				"depletion_speed":   merged.DepletionSpeed,
-				"depletion_grace_days": merged.DepletionGraceDays,
-				"depletion_period":  merged.DepletionPeriod,
-				"depletion_period_gb": merged.DepletionPeriodGB,
-				"window_quota_gb":   merged.WindowQuotaGB,
-				"window_minutes":    merged.WindowMinutes,
-				"window_action":     merged.WindowAction,
-				"window_speed":      merged.WindowSpeed,
+				"sub_id":                        merged.SubID,
+				"uuid":                          merged.UUID,
+				"password":                      merged.Password,
+				"auth":                          merged.Auth,
+				"secret":                        merged.Secret,
+				"flow":                          merged.Flow,
+				"security":                      merged.Security,
+				"wg_private_key":                merged.PrivateKey,
+				"wg_public_key":                 merged.PublicKey,
+				"wg_allowed_ips":                merged.AllowedIPs,
+				"wg_pre_shared_key":             merged.PreSharedKey,
+				"wg_keep_alive":                 merged.KeepAlive,
+				"limit_ip":                      merged.LimitIP,
+				"total_gb":                      merged.TotalGB,
+				"total_exhaust_action":          merged.TotalExhaustAction,
+				"total_exhaust_up_kbps":         merged.TotalExhaustUpKbps,
+				"total_exhaust_down_kbps":       merged.TotalExhaustDownKbps,
+				"total_overage_multiplier_bps":  merged.TotalOverageMultiplierBps,
+				"speed_limit_kbps":              merged.SpeedLimitKbps,
+				"speed_limit_up_kbps":           merged.SpeedLimitUpKbps,
+				"speed_limit_down_kbps":         merged.SpeedLimitDownKbps,
+				"window_quota_bytes":            merged.WindowQuotaBytes,
+				"window_hours":                  merged.WindowHours,
+				"window_mode":                   merged.WindowMode,
+				"window_exhaust_action":         merged.WindowExhaustAction,
+				"window_exhaust_up_kbps":        merged.WindowExhaustUpKbps,
+				"window_exhaust_down_kbps":      merged.WindowExhaustDownKbps,
+				"window_overage_multiplier_bps": merged.WindowOverageMultiplierBps,
+				"expiry_time":                   merged.ExpiryTime,
+				"grace_hours":                   merged.GraceHours,
+				"grace_up_kbps":                 merged.GraceUpKbps,
+				"grace_down_kbps":               merged.GraceDownKbps,
+				"grace_quota_bytes":             merged.GraceQuotaBytes,
+				"tg_id":                         merged.TgID,
+				"comment":                       merged.Comment,
+				"reset":                         merged.Reset,
+				"reset_day":                     merged.ResetDay,
+				"reset_max":                     merged.ResetMax,
+				"traffic_reset":                 merged.TrafficReset,
+				"traffic_reset_day":             merged.TrafficResetDay,
 			}).Error; err != nil {
 			return needRestart, err
 		}
@@ -854,6 +864,18 @@ func (s *ClientService) Update(inboundSvc *InboundService, id int, updated model
 		Where("id = ?", id).
 		UpdateColumn("updated_at", time.Now().UnixMilli()).Error; err != nil {
 		return needRestart, err
+	}
+	// The core intentionally does not restore a spent total/grace allowance
+	// merely because a policy file was refreshed. Bump the durable epoch when
+	// an operator changes the entitlement, so added credit takes effect now.
+	if existing.TotalGB != updated.TotalGB || existing.ExpiryTime != updated.ExpiryTime ||
+		policyInputValue(updated.GraceHours, existing.GraceHours) != existing.GraceHours ||
+		policyInputValue(updated.GraceQuotaBytes, existing.GraceQuotaBytes) != existing.GraceQuotaBytes {
+		if err := database.GetDB().Model(&xray.ClientTraffic{}).
+			Where("email = ?", updated.Email).
+			UpdateColumn("quota_epoch", time.Now().UnixNano()).Error; err != nil {
+			return needRestart, err
+		}
 	}
 	return needRestart, nil
 }

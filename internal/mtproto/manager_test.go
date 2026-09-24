@@ -1,6 +1,7 @@
 package mtproto
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -10,11 +11,12 @@ import (
 func TestInstanceFromInbound(t *testing.T) {
 	aliceSecret := "ee0123456789abcdef0123456789abcdef6578616d706c652e636f6d"
 	ib := &model.Inbound{
-		Id:       3,
-		Tag:      "inbound-3",
-		Listen:   "0.0.0.0",
-		Port:     8443,
-		Protocol: model.MTProto,
+		Id:                   3,
+		Tag:                  "inbound-3",
+		Listen:               "0.0.0.0",
+		Port:                 8443,
+		Protocol:             model.MTProto,
+		TrafficMultiplierBps: 25_000,
 		Settings: `{"fakeTlsDomain":"example.com",` +
 			`"debug":true,"proxyProtocolListener":true,"preferIp":"prefer-ipv4",` +
 			`"domainFronting":{"ip":"127.0.0.1","port":9443,"proxyProtocol":true},` +
@@ -42,8 +44,8 @@ func TestInstanceFromInbound(t *testing.T) {
 	if inst.Secrets[0].AdTag != "fedcba9876543210fedcba9876543210" {
 		t.Fatalf("the client ad-tag must be parsed, got %q", inst.Secrets[0].AdTag)
 	}
-	if inst.Secrets[0].QuotaBytes != 1073741824 {
-		t.Fatalf("totalGB must map to the byte quota, got %d", inst.Secrets[0].QuotaBytes)
+	if inst.Secrets[0].QuotaBytes != 429496730 {
+		t.Fatalf("2.5x inbound must scale the native physical-byte quota, got %d", inst.Secrets[0].QuotaBytes)
 	}
 	if inst.Secrets[0].ExpiresUnix != 1893456000 {
 		t.Fatalf("expiryTime (ms) must map to a unix-second deadline, got %d", inst.Secrets[0].ExpiresUnix)
@@ -63,6 +65,18 @@ func TestInstanceFromInbound(t *testing.T) {
 	if !inst.RouteThroughXray || inst.XrayRoutePort != 50000 {
 		t.Fatalf("xray routing not parsed: %+v", inst)
 	}
+	if inst.TrafficMultiplierBps != 25_000 {
+		t.Fatalf("inbound multiplier not available to traffic job: %+v", inst)
+	}
+	withoutMultiplier := *ib
+	withoutMultiplier.TrafficMultiplierBps = 0
+	defaultInstance, ok := InstanceFromInbound(&withoutMultiplier)
+	if !ok || defaultInstance.TrafficMultiplierBps != model.DefaultTrafficMultiplierBps {
+		t.Fatalf("legacy inbound must use 1x multiplier: %+v, ok=%v", defaultInstance, ok)
+	}
+	if inst.structuralFingerprint() != defaultInstance.structuralFingerprint() {
+		t.Fatal("accounting-only multiplier change must not restart mtg")
+	}
 
 	if _, ok := InstanceFromInbound(&model.Inbound{Protocol: model.VLESS}); ok {
 		t.Fatal("non-mtproto inbound should not produce an instance")
@@ -80,6 +94,69 @@ func TestInstanceFromInbound(t *testing.T) {
 	}
 	if badInst.Secrets[0].AdTag != "" {
 		t.Fatalf("a malformed ad tag must be dropped so the generated config stays valid, got %q", badInst.Secrets[0].AdTag)
+	}
+}
+
+func TestMtprotoNativeQuotaTracksDiscountedAndPremiumBilling(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		billable   int64
+		multiplier int
+		physical   int64
+	}{
+		{"one-to-one", 1000, 10_000, 1000},
+		{"double", 1000, 20_000, 500},
+		{"two-and-half-round-up", 1001, 25_000, 401},
+		{"one-percent", 1000, 100, 100_000},
+		{"tiny-allowance", 1, 10_000_000, 1},
+		{"js-safe-max-factor", 1_000_000_000_000, model.MaxTrafficMultiplierBps, 2},
+		{"overflow-clamps", math.MaxInt64, 100, math.MaxInt64},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := mtprotoPhysicalQuota(test.billable, test.multiplier); got != test.physical {
+				t.Fatalf("physical mtg guard = %d, want %d", got, test.physical)
+			}
+		})
+	}
+	ib := &model.Inbound{Protocol: model.MTProto, TrafficMultiplierBps: 100,
+		Settings: `{"clients":[{"email":"discounted","secret":"ee11","enable":true,"totalGB":1000}]}`}
+	discounted, ok := InstanceFromInbound(ib)
+	if !ok || discounted.Secrets[0].QuotaBytes != 100_000 {
+		t.Fatalf("0.01x native quota not adjusted: %+v, ok=%v", discounted, ok)
+	}
+	ib.TrafficMultiplierBps = 10_000
+	normal, ok := InstanceFromInbound(ib)
+	if !ok || normal.Secrets[0].QuotaBytes != 1000 {
+		t.Fatalf("1x native quota not restored: %+v, ok=%v", normal, ok)
+	}
+	if discounted.secretsFingerprint() == normal.secretsFingerprint() {
+		t.Fatal("multiplier change must reload the mtg secret quota")
+	}
+	if discounted.structuralFingerprint() != normal.structuralFingerprint() {
+		t.Fatal("quota-only multiplier change must not restart the sidecar")
+	}
+}
+
+func TestInboundRateUsesAuthenticatedXrayBridge(t *testing.T) {
+	zero := int64(0)
+	in := &model.Inbound{Id: 77, Tag: "mt-rate", Protocol: model.MTProto,
+		SpeedLimitKbps: 1_000, SpeedLimitUpKbps: &zero,
+		Settings: `{"routeThroughXray":false,"routeXrayPort":50077,"rateBridgePassword":"test-token","clients":[{"email":"alice","secret":"ee11","enable":true}]}`}
+	inst, ok := InstanceFromInbound(in)
+	if !ok || !inst.RouteThroughXray || !inst.RateViaXray || inst.XrayRoutePort != 50077 {
+		t.Fatalf("capped MTProto must route through a rate bridge: %+v, ok=%t", inst, ok)
+	}
+	config := renderConfig(inst, 50078, "")
+	if !strings.Contains(config, "socks5://mtproto-rate-77%40loopback.invalid:test-token@127.0.0.1:50077") {
+		t.Fatalf("mtg route lacks authenticated rate identity:\n%s", config)
+	}
+	in.Settings = `{"routeThroughXray":false,"clients":[{"email":"alice","secret":"ee11","enable":true}]}`
+	if _, ok := InstanceFromInbound(in); ok {
+		t.Fatal("a capped inbound without a bridge port must fail closed")
+	}
+	in.SpeedLimitDownKbps = &zero
+	if inst, ok := InstanceFromInbound(in); !ok || inst.RouteThroughXray || inst.RateViaXray {
+		t.Fatalf("explicit zero in both directions must leave mtg on its original path: %+v, ok=%t", inst, ok)
 	}
 }
 

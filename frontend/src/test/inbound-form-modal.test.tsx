@@ -103,6 +103,57 @@ describe('InboundFormModal', () => {
     expect(fieldLabels().length).toBeGreaterThan(0);
   });
 
+  it('keeps speed ceilings and the traffic multiplier together in Advanced traffic', async () => {
+    renderModal();
+    const activeLabels = () =>
+      Array.from(screen.getByRole('tabpanel').querySelectorAll('.ant-form-item-label label'))
+        .map((element) => (element.textContent ?? '').trim())
+        .filter(Boolean);
+    expect(activeLabels()).not.toContain('Inbound maximum upload (0 = no maximum)');
+    fireEvent.click(screen.getByRole('tab', { name: 'Advanced traffic' }));
+    await waitFor(() =>
+      expect(activeLabels()).toContain('Inbound maximum upload (0 = no maximum)'),
+    );
+    expect(activeLabels()).toContain('Inbound maximum download (0 = no maximum)');
+    expect(activeLabels()).toContain('Traffic deduction multiplier');
+  });
+
+  it('forces an existing TUIC inbound multiplier to 1×', async () => {
+    renderCloneLikeEdit(
+      new DBInbound({
+        id: 91,
+        port: 12443,
+        protocol: 'tuic',
+        settings: { clients: [] },
+        trafficMultiplierBps: 20000,
+      }),
+    );
+    fireEvent.click(screen.getByRole('tab', { name: 'Advanced traffic' }));
+    await waitFor(() => {
+      const tuicMultiplier = screen
+        .getByText('Traffic deduction multiplier')
+        .closest('.ant-form-item')
+        ?.querySelector('input') as HTMLInputElement;
+      expect(Number(tuicMultiplier.value)).toBe(1);
+      expect(tuicMultiplier.disabled).toBe(true);
+    });
+    expect(screen.getByText(/TUIC currently reports only aggregate UDP bytes/)).toBeTruthy();
+  });
+
+  it('renders the largest safe multiplier without losing basis points', async () => {
+    const inbound = cloneLikeVlessInbound('example.com');
+    inbound.trafficMultiplierBps = Number.MAX_SAFE_INTEGER;
+    renderCloneLikeEdit(inbound);
+    fireEvent.click(screen.getByRole('tab', { name: 'Advanced traffic' }));
+    await waitFor(() => {
+      const input = screen
+        .getByText('Traffic deduction multiplier')
+        .closest('.ant-form-item')
+        ?.querySelector('input') as HTMLInputElement;
+      expect(input.value).toBe('900719925474.0991');
+    });
+  });
+
   it('field structure differs per protocol (not a vacuous snapshot loop)', async () => {
     renderModal();
     const protocols = listSelectOptions('protocol');

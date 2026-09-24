@@ -220,11 +220,11 @@ func (s *SubJsonService) GetJson(subId string, host string, alwaysReturnArray bo
 	slices.Sort(emails)
 	traffic, _ := subReq.AggregateTrafficByEmails(emails)
 	traffic.Enable = hasEnabledClient
-	header = subReq.subscriptionUserinfo(traffic)
+	header = subReq.subscriptionUserinfo(subReq.subscriptionHeaderTraffic(subId, traffic))
 
 	if mode, remark := subReq.resolveInfoNodeRemark(subId, emails, traffic, len(configArray) > 0); mode != infoNodeNone {
 		dummyConfig := s.genDummySocksConfig(remark)
-		if mode == infoNodeExpired || mode == infoNodeDepleted {
+		if mode == infoNodeExpired || mode == infoNodeDepleted || mode == infoNodeDisabled {
 			configArray = []json_util.RawMessage{dummyConfig}
 		} else {
 			configArray = append([]json_util.RawMessage{dummyConfig}, configArray...)

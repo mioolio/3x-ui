@@ -81,6 +81,7 @@ func (m *Manager) ensureLocked(inst Instance) error {
 			existing.structuralFP == structuralFP && existing.usersFP == usersFP {
 			existing.tag = inst.Tag
 			existing.proc.UpdateClients(uuidToEmail)
+			existing.relay.SetDirectionalRates(inst.SpeedLimitUpKbps, inst.SpeedLimitDownKbps)
 			return nil
 		}
 		stopManaged(existing)
@@ -127,6 +128,7 @@ func (m *Manager) startLocked(inst Instance, uuidToEmail map[string]string) (*Pr
 		_ = RemoveConfigFile(inst.Id)
 		return nil, nil, "", fmt.Errorf("tuic: listen on %s for %d: %w", inst.BindTo(), inst.Id, err)
 	}
+	relay.SetDirectionalRates(inst.SpeedLimitUpKbps, inst.SpeedLimitDownKbps)
 	proc := newProcess(configPath, inst.Tag, uuidToEmail)
 	if err := proc.Start(); err != nil {
 		relay.Close()

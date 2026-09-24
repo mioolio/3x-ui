@@ -46,19 +46,22 @@ type User struct {
 
 // Inbound represents an Xray inbound configuration with traffic statistics and settings.
 type Inbound struct {
-	Id                   int                  `json:"id" form:"id" gorm:"primaryKey;autoIncrement" example:"1"`                                                                                                     // Unique identifier
-	UserId               int                  `json:"-"`                                                                                                                                                            // Associated user ID
-	Up                   int64                `json:"up" form:"up"`                                                                                                                                                 // Upload traffic in bytes
-	Down                 int64                `json:"down" form:"down"`                                                                                                                                             // Download traffic in bytes
-	Total                int64                `json:"total" form:"total"`                                                                                                                                           // Total traffic limit in bytes
-	HistoryUp            int64                `json:"historyUp" form:"historyUp" gorm:"column:history_up;default:0"`                                                                                                // Lifetime upload, never reset by traffic resets
-	HistoryDown          int64                `json:"historyDown" form:"historyDown" gorm:"column:history_down;default:0"`                                                                                          // Lifetime download, never reset by traffic resets
+	Id                   int                  `json:"id" form:"id" gorm:"primaryKey;autoIncrement" example:"1"`                             // Unique identifier
+	UserId               int                  `json:"-"`                                                                                    // Associated user ID
+	Up                   int64                `json:"up" form:"up"`                                                                         // Upload traffic in bytes
+	Down                 int64                `json:"down" form:"down"`                                                                     // Download traffic in bytes
+	Total                int64                `json:"total" form:"total"`                                                                   // Total traffic limit in bytes
+	SpeedLimitKbps       int64                `json:"speedLimitKbps" form:"speedLimitKbps" gorm:"default:0" validate:"gte=0"`               // Shared maximum bandwidth for all clients on this inbound; 0 is unlimited
+	SpeedLimitUpKbps     *int64               `json:"speedLimitUpKbps,omitempty" form:"speedLimitUpKbps" gorm:"column:speed_limit_up_kbps"` // Nil inherits the legacy symmetric limit; zero explicitly removes this direction's limit
+	SpeedLimitDownKbps   *int64               `json:"speedLimitDownKbps,omitempty" form:"speedLimitDownKbps" gorm:"column:speed_limit_down_kbps"`
+	TrafficMultiplierBps int                  `json:"trafficMultiplierBps" form:"trafficMultiplierBps" gorm:"column:traffic_multiplier_bps;default:10000"`                                                          // 10000 = 1x; 100 = 0.01x
 	Remark               string               `json:"remark" form:"remark" example:"VLESS-443"`                                                                                                                     // Human-readable remark
 	SubSortIndex         int                  `json:"subSortIndex" form:"subSortIndex" gorm:"default:1" validate:"omitempty" example:"1"`                                                                           // Sort order of this inbound's links in subscription output only (lower first; negatives allowed; 0/omitted → 1; ties by id)
 	Enable               bool                 `json:"enable" form:"enable" gorm:"index:idx_enable_traffic_reset,priority:1" example:"true"`                                                                         // Whether the inbound is enabled
 	ExpiryTime           int64                `json:"expiryTime" form:"expiryTime"`                                                                                                                                 // Expiration timestamp
 	TrafficReset         string               `json:"trafficReset" form:"trafficReset" gorm:"default:never;index:idx_enable_traffic_reset,priority:2" validate:"omitempty,oneof=never hourly daily weekly monthly"` // Traffic reset schedule
 	TrafficResetDay      int                  `json:"trafficResetDay" form:"trafficResetDay" gorm:"default:1" validate:"omitempty,gte=1,lte=31" example:"1"`                                                        // Day of month for monthly traffic resets
+	TrafficResetInterval int                  `json:"trafficResetInterval" form:"trafficResetInterval" gorm:"default:1" validate:"omitempty,gte=1,lte=10000"`                                                       // Number of hours, days or months between resets; 1 preserves legacy schedules
 	LastTrafficResetTime int64                `json:"lastTrafficResetTime" form:"lastTrafficResetTime" gorm:"default:0"`                                                                                            // Last traffic reset timestamp
 	ClientStats          []xray.ClientTraffic `gorm:"foreignKey:InboundId;references:Id" json:"clientStats" form:"clientStats"`                                                                                     // Client traffic statistics
 
@@ -75,20 +78,6 @@ type Inbound struct {
 	ShareAddr         string   `json:"shareAddr" form:"shareAddr" gorm:"column:share_addr"`
 
 	DisableFlow bool `json:"disableFlow" form:"disableFlow" gorm:"column:disable_flow;default:false" example:"false"`
-
-	// Per-inbound traffic plan, applied to every client on this inbound unless
-	// the client carries its own stronger setting. All opt-in (zero values).
-	// Plan is a daily/weekly/monthly fence; Window is a short quota window in
-	// minutes (e.g. 500MB per 2h). Enforcement is per client, aligned to its
-	// first use.
-	PlanPeriod     string `json:"planPeriod,omitempty" form:"planPeriod" gorm:"column:plan_period;default:''" validate:"omitempty,oneof=daily weekly monthly"`
-	PlanQuotaGB    int64  `json:"planQuotaGB,omitempty" form:"planQuotaGB" gorm:"column:plan_quota_gb;default:0"`
-	PlanAction     string `json:"planAction,omitempty" form:"planAction" gorm:"column:plan_action;default:''" validate:"omitempty,oneof=disable throttle"`
-	PlanSpeed      int    `json:"planSpeed,omitempty" form:"planSpeed" gorm:"column:plan_speed;default:0"`
-	WindowQuotaGB  int64  `json:"windowQuotaGB,omitempty" form:"windowQuotaGB" gorm:"column:window_quota_gb;default:0"`
-	WindowMinutes  int    `json:"windowMinutes,omitempty" form:"windowMinutes" gorm:"column:window_minutes;default:0"`
-	WindowAction   string `json:"windowAction,omitempty" form:"windowAction" gorm:"column:window_action;default:''" validate:"omitempty,oneof=disable throttle"`
-	WindowSpeed    int    `json:"windowSpeed,omitempty" form:"windowSpeed" gorm:"column:window_speed;default:0"`
 
 	// OriginNodeGuid is the panelGuid of the node that physically hosts this
 	// inbound, propagated up across hops (#4983). Empty for an inbound that
@@ -905,88 +894,101 @@ type Client struct {
 	// being broadcast to every attached tunnel inbound. Absent/unset for a
 	// given inbound id falls back to the shared AllowedIPs exactly as
 	// before -- fully backward compatible for callers that never set this.
-	AllowedIPsByInbound map[int][]string `json:"allowedIPsByInbound,omitempty"`
-	PreSharedKey        string           `json:"preSharedKey,omitempty"`
-	KeepAlive           *int             `json:"keepAlive,omitempty"`      // Seconds between PersistentKeepalive packets; 0 sends none, omit to keep the stored value
-	ForwardedPorts      string           `json:"forwardedPorts,omitempty"` // AmneziaWG per-client port-forwarding spec, e.g. "80,443,8000-8100"
-	Secret              string           `json:"secret,omitempty" example:"ee1234567890abcdef1234567890abcd7777772e636c6f7564666c6172652e636f6d"`
-	AdTag               string           `json:"adTag,omitempty" example:"0123456789abcdef0123456789abcdef"`
-	Email               string           `json:"email"`                        // Client email identifier
-	LimitIP             int              `json:"limitIp"`                      // IP limit for this client
-	TotalGB             int64            `json:"totalGB" form:"totalGB"`       // Total traffic limit in GB
-	ExpiryTime          int64            `json:"expiryTime" form:"expiryTime"` // Expiration timestamp
-	Enable              bool             `json:"enable" form:"enable"`         // Whether the client is enabled
-	TgID                int64            `json:"tgId" form:"tgId"`             // Telegram user ID for notifications
-	SubID               string           `json:"subId" form:"subId"`           // Subscription identifier
-	Group               string           `json:"group,omitempty" form:"group"` // Logical grouping label
-	Comment             string           `json:"comment" form:"comment"`       // Client comment
-	Reset               int              `json:"reset" form:"reset"`           // Reset period in days
-	ResetDay            int              `json:"resetDay" form:"resetDay"`     // Calendar renewal day 1-31, 0 = interval mode
-	ResetMax            int              `json:"resetMax" form:"resetMax"`     // Max auto-renew count, 0 = unlimited
+	AllowedIPsByInbound        map[int][]string `json:"allowedIPsByInbound,omitempty"`
+	PreSharedKey               string           `json:"preSharedKey,omitempty"`
+	KeepAlive                  *int             `json:"keepAlive,omitempty"`      // Seconds between PersistentKeepalive packets; 0 sends none, omit to keep the stored value
+	ForwardedPorts             string           `json:"forwardedPorts,omitempty"` // AmneziaWG per-client port-forwarding spec, e.g. "80,443,8000-8100"
+	Secret                     string           `json:"secret,omitempty" example:"ee1234567890abcdef1234567890abcd7777772e636c6f7564666c6172652e636f6d"`
+	AdTag                      string           `json:"adTag,omitempty" example:"0123456789abcdef0123456789abcdef"`
+	Email                      string           `json:"email"`                  // Client email identifier
+	LimitIP                    int              `json:"limitIp"`                // IP limit for this client
+	TotalGB                    int64            `json:"totalGB" form:"totalGB"` // Total traffic limit in GB
+	TotalExhaustAction         *string          `json:"totalExhaustAction,omitempty" form:"totalExhaustAction"`
+	TotalExhaustUpKbps         *int64           `json:"totalExhaustUpKbps,omitempty" form:"totalExhaustUpKbps"`
+	TotalExhaustDownKbps       *int64           `json:"totalExhaustDownKbps,omitempty" form:"totalExhaustDownKbps"`
+	TotalOverageMultiplierBps  *int             `json:"totalOverageMultiplierBps,omitempty" form:"totalOverageMultiplierBps"`
+	SpeedLimitKbps             int64            `json:"speedLimitKbps" form:"speedLimitKbps"` // Client maximum across attached inbounds; 0 is unlimited
+	SpeedLimitUpKbps           *int64           `json:"speedLimitUpKbps,omitempty" form:"speedLimitUpKbps"`
+	SpeedLimitDownKbps         *int64           `json:"speedLimitDownKbps,omitempty" form:"speedLimitDownKbps"`
+	WindowQuotaBytes           int64            `json:"windowQuotaBytes" form:"windowQuotaBytes"` // Per-window quota, 0 disables it
+	WindowHours                int              `json:"windowHours" form:"windowHours"`           // Window length in hours
+	WindowMode                 string           `json:"windowMode" form:"windowMode"`             // fixed or rolling
+	WindowExhaustAction        *string          `json:"windowExhaustAction,omitempty" form:"windowExhaustAction"`
+	WindowExhaustUpKbps        *int64           `json:"windowExhaustUpKbps,omitempty" form:"windowExhaustUpKbps"`
+	WindowExhaustDownKbps      *int64           `json:"windowExhaustDownKbps,omitempty" form:"windowExhaustDownKbps"`
+	WindowOverageMultiplierBps *int             `json:"windowOverageMultiplierBps,omitempty" form:"windowOverageMultiplierBps"`
+	ExpiryTime                 int64            `json:"expiryTime" form:"expiryTime"` // Expiration timestamp
+	GraceHours                 *int             `json:"graceHours,omitempty" form:"graceHours"`
+	GraceUpKbps                *int64           `json:"graceUpKbps,omitempty" form:"graceUpKbps"`
+	GraceDownKbps              *int64           `json:"graceDownKbps,omitempty" form:"graceDownKbps"`
+	GraceQuotaBytes            *int64           `json:"graceQuotaBytes,omitempty" form:"graceQuotaBytes"`
+	Enable                     bool             `json:"enable" form:"enable"`         // Whether the client is enabled
+	TgID                       int64            `json:"tgId" form:"tgId"`             // Telegram user ID for notifications
+	SubID                      string           `json:"subId" form:"subId"`           // Subscription identifier
+	Group                      string           `json:"group,omitempty" form:"group"` // Logical grouping label
+	Comment                    string           `json:"comment" form:"comment"`       // Client comment
+	Reset                      int              `json:"reset" form:"reset"`           // Reset period in days
+	ResetDay                   int              `json:"resetDay" form:"resetDay"`     // Calendar renewal day 1-31, 0 = interval mode
+	ResetMax                   int              `json:"resetMax" form:"resetMax"`     // Max auto-renew count, 0 = unlimited
 	// Per-client traffic reset cycle, independent of the inbound's own (#5497).
 	TrafficReset    string `json:"trafficReset,omitempty" form:"trafficReset" validate:"omitempty,oneof=never hourly daily weekly monthly"`
 	TrafficResetDay int    `json:"trafficResetDay,omitempty" form:"trafficResetDay" validate:"omitempty,gte=1,lte=31"`
-	// Per-client bandwidth controls, all opt-in: zero values keep the legacy
-	// behaviour (unlimited speed, disable on depletion, no quota window).
-	SpeedLimitUp     int    `json:"speedLimitUp,omitempty" form:"speedLimitUp" validate:"omitempty,gte=0"`  // Always-on cap, Kbps
-	SpeedLimitDown   int    `json:"speedLimitDown,omitempty" form:"speedLimitDown" validate:"omitempty,gte=0"` // Always-on cap, Kbps
-	DepletionAction  string `json:"depletionAction,omitempty" form:"depletionAction" validate:"omitempty,oneof=disable throttle"` // On quota/expiry exhaustion
-	DepletionSpeed   int    `json:"depletionSpeed,omitempty" form:"depletionSpeed" validate:"omitempty,gte=0"` // Kbps while depletion-throttled
-	DepletionGraceDays int  `json:"depletionGraceDays,omitempty" form:"depletionGraceDays" validate:"omitempty,gte=0"` // Max days of depletion throttling; 0 = unlimited
-	DepletionPeriod  string `json:"depletionPeriod,omitempty" form:"depletionPeriod" validate:"omitempty,oneof=daily weekly monthly"` // Traffic cap while depletion-throttled
-	DepletionPeriodGB int64 `json:"depletionPeriodGB,omitempty" form:"depletionPeriodGB" validate:"omitempty,gte=0"` // Bytes per depletion-throttle period
-	WindowQuotaGB    int64  `json:"windowQuotaGB,omitempty" form:"windowQuotaGB" validate:"omitempty,gte=0"` // Bytes per sliding window, like totalGB
-	WindowMinutes    int    `json:"windowMinutes,omitempty" form:"windowMinutes" validate:"omitempty,gte=0"` // Window length; 0 disables the quota
-	WindowAction     string `json:"windowAction,omitempty" form:"windowAction" validate:"omitempty,oneof=disable throttle"` // On window overrun
-	WindowSpeed      int    `json:"windowSpeed,omitempty" form:"windowSpeed" validate:"omitempty,gte=0"` // Kbps while window-throttled
 	CreatedAt       int64  `json:"created_at,omitempty"` // Creation timestamp
 	UpdatedAt       int64  `json:"updated_at,omitempty"` // Last update timestamp
 }
 
 type ClientRecord struct {
-	Id              int    `json:"id" gorm:"primaryKey;autoIncrement"`
-	Email           string `json:"email" gorm:"uniqueIndex;not null"`
-	SubID           string `json:"subId" gorm:"index;column:sub_id"`
-	UUID            string `json:"uuid" gorm:"column:uuid"`
-	Password        string `json:"password"`
-	Auth            string `json:"auth"`
-	Flow            string `json:"flow"`
-	Security        string `json:"security"`
-	Reverse         string `json:"reverse" gorm:"column:reverse"`
-	PrivateKey      string `json:"privateKey" gorm:"column:wg_private_key"`
-	PublicKey       string `json:"publicKey" gorm:"column:wg_public_key"`
-	AllowedIPs      string `json:"allowedIPs" gorm:"column:wg_allowed_ips"`
-	PreSharedKey    string `json:"preSharedKey" gorm:"column:wg_pre_shared_key"`
-	KeepAlive       int    `json:"keepAlive" gorm:"column:wg_keep_alive;default:0"`
-	ForwardedPorts  string `json:"forwardedPorts" gorm:"column:wg_forwarded_ports"`
-	Secret          string `json:"secret" gorm:"column:secret"`
-	AdTag           string `json:"adTag" gorm:"column:ad_tag;default:''"`
-	LimitIP         int    `json:"limitIp" gorm:"column:limit_ip"`
-	LimitHwid       int    `json:"limitHwid" gorm:"column:limit_hwid;default:0"`
-	TotalGB         int64  `json:"totalGB" gorm:"column:total_gb"`
-	ExpiryTime      int64  `json:"expiryTime" gorm:"column:expiry_time"`
-	Enable          bool   `json:"enable" gorm:"default:true"`
-	TgID            int64  `json:"tgId" gorm:"column:tg_id;index:idx_clients_tg_id"`
-	Group           string `json:"group" gorm:"column:group_name;default:'';index:idx_client_record_group"`
-	Comment         string `json:"comment"`
-	Reset           int    `json:"reset" gorm:"default:0"`
-	ResetDay        int    `json:"resetDay" gorm:"column:reset_day;default:0"`
-	ResetMax        int    `json:"resetMax" gorm:"column:reset_max;default:0"`
-	TrafficReset    string `json:"trafficReset" gorm:"column:traffic_reset;default:never;index:idx_clients_traffic_reset"`
-	TrafficResetDay int    `json:"trafficResetDay" gorm:"column:traffic_reset_day;default:1"`
-	SpeedLimitUp       int    `json:"speedLimitUp" gorm:"column:speed_limit_up;default:0"`
-	SpeedLimitDown     int    `json:"speedLimitDown" gorm:"column:speed_limit_down;default:0"`
-	DepletionAction    string `json:"depletionAction" gorm:"column:depletion_action;default:''"`
-	DepletionSpeed     int    `json:"depletionSpeed" gorm:"column:depletion_speed;default:0"`
-	DepletionGraceDays int    `json:"depletionGraceDays" gorm:"column:depletion_grace_days;default:0"`
-	DepletionPeriod    string `json:"depletionPeriod" gorm:"column:depletion_period;default:''"`
-	DepletionPeriodGB  int64  `json:"depletionPeriodGB" gorm:"column:depletion_period_gb;default:0"`
-	WindowQuotaGB   int64  `json:"windowQuotaGB" gorm:"column:window_quota_gb;default:0"`
-	WindowMinutes   int    `json:"windowMinutes" gorm:"column:window_minutes;default:0"`
-	WindowAction    string `json:"windowAction" gorm:"column:window_action;default:''"`
-	WindowSpeed     int    `json:"windowSpeed" gorm:"column:window_speed;default:0"`
-	CreatedAt       int64  `json:"createdAt" gorm:"autoCreateTime:milli"`
-	UpdatedAt       int64  `json:"updatedAt" gorm:"autoUpdateTime:milli"`
+	Id                         int               `json:"id" gorm:"primaryKey;autoIncrement"`
+	Email                      string            `json:"email" gorm:"uniqueIndex;not null"`
+	SubID                      string            `json:"subId" gorm:"index;column:sub_id"`
+	UUID                       string            `json:"uuid" gorm:"column:uuid"`
+	Password                   string            `json:"password"`
+	Auth                       string            `json:"auth"`
+	Flow                       string            `json:"flow"`
+	Security                   string            `json:"security"`
+	Reverse                    string            `json:"reverse" gorm:"column:reverse"`
+	PrivateKey                 string            `json:"privateKey" gorm:"column:wg_private_key"`
+	PublicKey                  string            `json:"publicKey" gorm:"column:wg_public_key"`
+	AllowedIPs                 string            `json:"allowedIPs" gorm:"column:wg_allowed_ips"`
+	PreSharedKey               string            `json:"preSharedKey" gorm:"column:wg_pre_shared_key"`
+	KeepAlive                  int               `json:"keepAlive" gorm:"column:wg_keep_alive;default:0"`
+	ForwardedPorts             string            `json:"forwardedPorts" gorm:"column:wg_forwarded_ports"`
+	Secret                     string            `json:"secret" gorm:"column:secret"`
+	AdTag                      string            `json:"adTag" gorm:"column:ad_tag;default:''"`
+	LimitIP                    int               `json:"limitIp" gorm:"column:limit_ip"`
+	LimitHwid                  int               `json:"limitHwid" gorm:"column:limit_hwid;default:0"`
+	TotalGB                    int64             `json:"totalGB" gorm:"column:total_gb"`
+	TotalExhaustAction         string            `json:"totalExhaustAction" gorm:"column:total_exhaust_action;default:stop"`
+	TotalExhaustUpKbps         int64             `json:"totalExhaustUpKbps" gorm:"column:total_exhaust_up_kbps;default:0"`
+	TotalExhaustDownKbps       int64             `json:"totalExhaustDownKbps" gorm:"column:total_exhaust_down_kbps;default:0"`
+	TotalOverageMultiplierBps  int               `json:"totalOverageMultiplierBps" gorm:"column:total_overage_multiplier_bps;default:10000"`
+	SpeedLimitKbps             int64             `json:"speedLimitKbps" gorm:"column:speed_limit_kbps;default:0"`
+	SpeedLimitUpKbps           *int64            `json:"speedLimitUpKbps,omitempty" gorm:"column:speed_limit_up_kbps"`
+	SpeedLimitDownKbps         *int64            `json:"speedLimitDownKbps,omitempty" gorm:"column:speed_limit_down_kbps"`
+	WindowQuotaBytes           int64             `json:"windowQuotaBytes" gorm:"column:window_quota_bytes;default:0"`
+	WindowHours                int               `json:"windowHours" gorm:"column:window_hours;default:0"`
+	WindowMode                 string            `json:"windowMode" gorm:"column:window_mode;default:fixed"`
+	WindowExhaustAction        string            `json:"windowExhaustAction" gorm:"column:window_exhaust_action;default:stop"`
+	WindowExhaustUpKbps        int64             `json:"windowExhaustUpKbps" gorm:"column:window_exhaust_up_kbps;default:0"`
+	WindowExhaustDownKbps      int64             `json:"windowExhaustDownKbps" gorm:"column:window_exhaust_down_kbps;default:0"`
+	WindowOverageMultiplierBps int               `json:"windowOverageMultiplierBps" gorm:"column:window_overage_multiplier_bps;default:10000"`
+	ExpiryTime                 int64             `json:"expiryTime" gorm:"column:expiry_time"`
+	GraceHours                 int               `json:"graceHours" gorm:"column:grace_hours;default:0"`
+	GraceUpKbps                int64             `json:"graceUpKbps" gorm:"column:grace_up_kbps;default:0"`
+	GraceDownKbps              int64             `json:"graceDownKbps" gorm:"column:grace_down_kbps;default:0"`
+	GraceQuotaBytes            int64             `json:"graceQuotaBytes" gorm:"column:grace_quota_bytes;default:0"`
+	PolicyPatch                ClientPolicyPatch `json:"-" gorm:"-"`
+	Enable                     bool              `json:"enable" gorm:"default:true"`
+	TgID                       int64             `json:"tgId" gorm:"column:tg_id;index:idx_clients_tg_id"`
+	Group                      string            `json:"group" gorm:"column:group_name;default:'';index:idx_client_record_group"`
+	Comment                    string            `json:"comment"`
+	Reset                      int               `json:"reset" gorm:"default:0"`
+	ResetDay                   int               `json:"resetDay" gorm:"column:reset_day;default:0"`
+	ResetMax                   int               `json:"resetMax" gorm:"column:reset_max;default:0"`
+	TrafficReset               string            `json:"trafficReset" gorm:"column:traffic_reset;default:never;index:idx_clients_traffic_reset"`
+	TrafficResetDay            int               `json:"trafficResetDay" gorm:"column:traffic_reset_day;default:1"`
+	CreatedAt                  int64             `json:"createdAt" gorm:"autoCreateTime:milli"`
+	UpdatedAt                  int64             `json:"updatedAt" gorm:"autoUpdateTime:milli"`
 	// Owned solely by the node-snapshot sweep, which soft-orphans instead of
 	// deleting; orphans from any other cause stay at zero and are never reaped.
 	SyncOrphanedAt int64 `json:"-" gorm:"column:sync_orphaned_at;default:0"`
@@ -1037,13 +1039,34 @@ func (r *ClientRecord) UnmarshalJSON(data []byte) error {
 }
 
 type ClientInbound struct {
-	ClientId     int    `json:"clientId" gorm:"primaryKey;column:client_id;index"`
-	InboundId    int    `json:"inboundId" gorm:"primaryKey;column:inbound_id;index"`
-	FlowOverride string `json:"flowOverride" gorm:"column:flow_override"`
-	CreatedAt    int64  `json:"createdAt" gorm:"autoCreateTime:milli"`
+	ClientId                   int    `json:"clientId" gorm:"primaryKey;column:client_id;index"`
+	InboundId                  int    `json:"inboundId" gorm:"primaryKey;column:inbound_id;index"`
+	FlowOverride               string `json:"flowOverride" gorm:"column:flow_override"`
+	SpeedLimitKbps             int64  `json:"speedLimitKbps" gorm:"column:speed_limit_kbps;default:0"`
+	SpeedLimitUpKbps           *int64 `json:"speedLimitUpKbps,omitempty" gorm:"column:speed_limit_up_kbps"`
+	SpeedLimitDownKbps         *int64 `json:"speedLimitDownKbps,omitempty" gorm:"column:speed_limit_down_kbps"`
+	WindowQuotaBytes           int64  `json:"windowQuotaBytes" gorm:"column:window_quota_bytes;default:0"`
+	WindowHours                int    `json:"windowHours" gorm:"column:window_hours;default:0"`
+	WindowMode                 string `json:"windowMode" gorm:"column:window_mode;default:fixed"`
+	WindowExhaustAction        string `json:"windowExhaustAction" gorm:"column:window_exhaust_action;default:stop"`
+	WindowExhaustUpKbps        int64  `json:"windowExhaustUpKbps" gorm:"column:window_exhaust_up_kbps;default:0"`
+	WindowExhaustDownKbps      int64  `json:"windowExhaustDownKbps" gorm:"column:window_exhaust_down_kbps;default:0"`
+	WindowOverageMultiplierBps int    `json:"windowOverageMultiplierBps" gorm:"column:window_overage_multiplier_bps;default:10000"`
+	CreatedAt                  int64  `json:"createdAt" gorm:"autoCreateTime:milli"`
 }
 
 func (ClientInbound) TableName() string { return "client_inbounds" }
+
+// ClientWindowSample stores one minute of traffic for a client. InboundId 0
+// tracks the client's global quota; positive ids track individual nodes.
+type ClientWindowSample struct {
+	ClientId    int   `gorm:"primaryKey;column:client_id"`
+	InboundId   int   `gorm:"primaryKey;column:inbound_id"`
+	BucketStart int64 `gorm:"primaryKey;column:bucket_start;index"`
+	Bytes       int64 `gorm:"column:bytes;not null"`
+}
+
+func (ClientWindowSample) TableName() string { return "client_window_samples" }
 
 type ClientHwid struct {
 	Id          int    `json:"id" gorm:"primaryKey;autoIncrement"`
@@ -1177,16 +1200,48 @@ func nonZeroKeepAlive(seconds int) *int {
 
 func (c *Client) ToRecord() *ClientRecord {
 	rec := &ClientRecord{
-		Email:           c.Email,
-		SubID:           c.SubID,
-		UUID:            c.ID,
-		Password:        c.Password,
-		Auth:            c.Auth,
-		Flow:            c.Flow,
-		Security:        c.Security,
-		LimitIP:         c.LimitIP,
-		TotalGB:         c.TotalGB,
-		ExpiryTime:      c.ExpiryTime,
+		Email:                      c.Email,
+		SubID:                      c.SubID,
+		UUID:                       c.ID,
+		Password:                   c.Password,
+		Auth:                       c.Auth,
+		Flow:                       c.Flow,
+		Security:                   c.Security,
+		LimitIP:                    c.LimitIP,
+		TotalGB:                    c.TotalGB,
+		TotalExhaustAction:         policyValue(c.TotalExhaustAction, "stop"),
+		TotalExhaustUpKbps:         policyValue(c.TotalExhaustUpKbps, int64(0)),
+		TotalExhaustDownKbps:       policyValue(c.TotalExhaustDownKbps, int64(0)),
+		TotalOverageMultiplierBps:  policyValue(c.TotalOverageMultiplierBps, DefaultOverageMultiplierBps),
+		SpeedLimitKbps:             c.SpeedLimitKbps,
+		SpeedLimitUpKbps:           c.SpeedLimitUpKbps,
+		SpeedLimitDownKbps:         c.SpeedLimitDownKbps,
+		WindowQuotaBytes:           c.WindowQuotaBytes,
+		WindowHours:                c.WindowHours,
+		WindowMode:                 c.WindowMode,
+		WindowExhaustAction:        policyValue(c.WindowExhaustAction, "stop"),
+		WindowExhaustUpKbps:        policyValue(c.WindowExhaustUpKbps, int64(0)),
+		WindowExhaustDownKbps:      policyValue(c.WindowExhaustDownKbps, int64(0)),
+		WindowOverageMultiplierBps: policyValue(c.WindowOverageMultiplierBps, DefaultOverageMultiplierBps),
+		ExpiryTime:                 c.ExpiryTime,
+		GraceHours:                 policyValue(c.GraceHours, 0),
+		GraceUpKbps:                policyValue(c.GraceUpKbps, int64(0)),
+		GraceDownKbps:              policyValue(c.GraceDownKbps, int64(0)),
+		GraceQuotaBytes:            policyValue(c.GraceQuotaBytes, int64(0)),
+		PolicyPatch: ClientPolicyPatch{
+			TotalExhaustAction:         c.TotalExhaustAction,
+			TotalExhaustUpKbps:         c.TotalExhaustUpKbps,
+			TotalExhaustDownKbps:       c.TotalExhaustDownKbps,
+			TotalOverageMultiplierBps:  c.TotalOverageMultiplierBps,
+			WindowExhaustAction:        c.WindowExhaustAction,
+			WindowExhaustUpKbps:        c.WindowExhaustUpKbps,
+			WindowExhaustDownKbps:      c.WindowExhaustDownKbps,
+			WindowOverageMultiplierBps: c.WindowOverageMultiplierBps,
+			GraceHours:                 c.GraceHours,
+			GraceUpKbps:                c.GraceUpKbps,
+			GraceDownKbps:              c.GraceDownKbps,
+			GraceQuotaBytes:            c.GraceQuotaBytes,
+		},
 		Enable:          c.Enable,
 		TgID:            c.TgID,
 		Group:           c.Group,
@@ -1198,18 +1253,6 @@ func (c *Client) ToRecord() *ClientRecord {
 		TrafficResetDay: c.TrafficResetDay,
 		CreatedAt:       c.CreatedAt,
 		UpdatedAt:       c.UpdatedAt,
-
-		SpeedLimitUp:       c.SpeedLimitUp,
-		SpeedLimitDown:     c.SpeedLimitDown,
-		DepletionAction:    c.DepletionAction,
-		DepletionSpeed:     c.DepletionSpeed,
-		DepletionGraceDays: c.DepletionGraceDays,
-		DepletionPeriod:    c.DepletionPeriod,
-		DepletionPeriodGB:  c.DepletionPeriodGB,
-		WindowQuotaGB:   c.WindowQuotaGB,
-		WindowMinutes:   c.WindowMinutes,
-		WindowAction:    c.WindowAction,
-		WindowSpeed:     c.WindowSpeed,
 
 		PrivateKey:     c.PrivateKey,
 		PublicKey:      c.PublicKey,
@@ -1247,39 +1290,45 @@ func splitWireguardAllowedIPs(csv string) []string {
 
 func (r *ClientRecord) ToClient() *Client {
 	c := &Client{
-		ID:              r.UUID,
-		Email:           r.Email,
-		SubID:           r.SubID,
-		Password:        r.Password,
-		Auth:            r.Auth,
-		Flow:            r.Flow,
-		Security:        r.Security,
-		LimitIP:         r.LimitIP,
-		TotalGB:         r.TotalGB,
-		ExpiryTime:      r.ExpiryTime,
-		Enable:          r.Enable,
-		TgID:            r.TgID,
-		Group:           r.Group,
-		Comment:         r.Comment,
-		Reset:           r.Reset,
-		ResetDay:        r.ResetDay,
-		ResetMax:        r.ResetMax,
-		TrafficReset:    r.TrafficReset,
-		TrafficResetDay: r.TrafficResetDay,
-		CreatedAt:       r.CreatedAt,
-		UpdatedAt:       r.UpdatedAt,
-
-		SpeedLimitUp:       r.SpeedLimitUp,
-		SpeedLimitDown:     r.SpeedLimitDown,
-		DepletionAction:    r.DepletionAction,
-		DepletionSpeed:     r.DepletionSpeed,
-		DepletionGraceDays: r.DepletionGraceDays,
-		DepletionPeriod:    r.DepletionPeriod,
-		DepletionPeriodGB:  r.DepletionPeriodGB,
-		WindowQuotaGB:   r.WindowQuotaGB,
-		WindowMinutes:   r.WindowMinutes,
-		WindowAction:    r.WindowAction,
-		WindowSpeed:     r.WindowSpeed,
+		ID:                         r.UUID,
+		Email:                      r.Email,
+		SubID:                      r.SubID,
+		Password:                   r.Password,
+		Auth:                       r.Auth,
+		Flow:                       r.Flow,
+		Security:                   r.Security,
+		LimitIP:                    r.LimitIP,
+		TotalGB:                    r.TotalGB,
+		TotalExhaustAction:         policyPtr(r.TotalExhaustAction),
+		TotalExhaustUpKbps:         policyPtr(r.TotalExhaustUpKbps),
+		TotalExhaustDownKbps:       policyPtr(r.TotalExhaustDownKbps),
+		TotalOverageMultiplierBps:  policyPtr(EffectiveOverageMultiplierBps(r.TotalOverageMultiplierBps)),
+		SpeedLimitKbps:             r.SpeedLimitKbps,
+		SpeedLimitUpKbps:           r.SpeedLimitUpKbps,
+		SpeedLimitDownKbps:         r.SpeedLimitDownKbps,
+		WindowQuotaBytes:           r.WindowQuotaBytes,
+		WindowHours:                r.WindowHours,
+		WindowMode:                 r.WindowMode,
+		WindowExhaustAction:        policyPtr(r.WindowExhaustAction),
+		WindowExhaustUpKbps:        policyPtr(r.WindowExhaustUpKbps),
+		WindowExhaustDownKbps:      policyPtr(r.WindowExhaustDownKbps),
+		WindowOverageMultiplierBps: policyPtr(EffectiveOverageMultiplierBps(r.WindowOverageMultiplierBps)),
+		ExpiryTime:                 r.ExpiryTime,
+		GraceHours:                 policyPtr(r.GraceHours),
+		GraceUpKbps:                policyPtr(r.GraceUpKbps),
+		GraceDownKbps:              policyPtr(r.GraceDownKbps),
+		GraceQuotaBytes:            policyPtr(r.GraceQuotaBytes),
+		Enable:                     r.Enable,
+		TgID:                       r.TgID,
+		Group:                      r.Group,
+		Comment:                    r.Comment,
+		Reset:                      r.Reset,
+		ResetDay:                   r.ResetDay,
+		ResetMax:                   r.ResetMax,
+		TrafficReset:               r.TrafficReset,
+		TrafficResetDay:            r.TrafficResetDay,
+		CreatedAt:                  r.CreatedAt,
+		UpdatedAt:                  r.UpdatedAt,
 
 		PrivateKey:     r.PrivateKey,
 		PublicKey:      r.PublicKey,
@@ -1468,75 +1517,6 @@ func MergeClientRecord(existing *ClientRecord, incoming *ClientRecord) []ClientM
 		if incomingNewer || existing.TrafficResetDay == 0 {
 			keep("trafficResetDay", existing.TrafficResetDay, incoming.TrafficResetDay, incoming.TrafficResetDay)
 			existing.TrafficResetDay = incoming.TrafficResetDay
-		}
-	}
-	// Bandwidth controls follow the same retain-what-is-set merge: an incoming
-	// zero means "unset", so clearing one of these on the master cannot reach a
-	// node through the merge and must go through a full reconcile instead.
-	if existing.SpeedLimitUp != incoming.SpeedLimitUp && incoming.SpeedLimitUp != 0 {
-		if incomingNewer || existing.SpeedLimitUp == 0 {
-			keep("speedLimitUp", existing.SpeedLimitUp, incoming.SpeedLimitUp, incoming.SpeedLimitUp)
-			existing.SpeedLimitUp = incoming.SpeedLimitUp
-		}
-	}
-	if existing.SpeedLimitDown != incoming.SpeedLimitDown && incoming.SpeedLimitDown != 0 {
-		if incomingNewer || existing.SpeedLimitDown == 0 {
-			keep("speedLimitDown", existing.SpeedLimitDown, incoming.SpeedLimitDown, incoming.SpeedLimitDown)
-			existing.SpeedLimitDown = incoming.SpeedLimitDown
-		}
-	}
-	if existing.DepletionAction != incoming.DepletionAction && incoming.DepletionAction != "" {
-		if incomingNewer || existing.DepletionAction == "" {
-			keep("depletionAction", existing.DepletionAction, incoming.DepletionAction, incoming.DepletionAction)
-			existing.DepletionAction = incoming.DepletionAction
-		}
-	}
-	if existing.DepletionSpeed != incoming.DepletionSpeed && incoming.DepletionSpeed != 0 {
-		if incomingNewer || existing.DepletionSpeed == 0 {
-			keep("depletionSpeed", existing.DepletionSpeed, incoming.DepletionSpeed, incoming.DepletionSpeed)
-			existing.DepletionSpeed = incoming.DepletionSpeed
-		}
-	}
-	if existing.WindowQuotaGB != incoming.WindowQuotaGB && incoming.WindowQuotaGB != 0 {
-		if incomingNewer || existing.WindowQuotaGB == 0 {
-			keep("windowQuotaGB", existing.WindowQuotaGB, incoming.WindowQuotaGB, incoming.WindowQuotaGB)
-			existing.WindowQuotaGB = incoming.WindowQuotaGB
-		}
-	}
-	if existing.WindowMinutes != incoming.WindowMinutes && incoming.WindowMinutes != 0 {
-		if incomingNewer || existing.WindowMinutes == 0 {
-			keep("windowMinutes", existing.WindowMinutes, incoming.WindowMinutes, incoming.WindowMinutes)
-			existing.WindowMinutes = incoming.WindowMinutes
-		}
-	}
-	if existing.WindowAction != incoming.WindowAction && incoming.WindowAction != "" {
-		if incomingNewer || existing.WindowAction == "" {
-			keep("windowAction", existing.WindowAction, incoming.WindowAction, incoming.WindowAction)
-			existing.WindowAction = incoming.WindowAction
-		}
-	}
-	if existing.WindowSpeed != incoming.WindowSpeed && incoming.WindowSpeed != 0 {
-		if incomingNewer || existing.WindowSpeed == 0 {
-			keep("windowSpeed", existing.WindowSpeed, incoming.WindowSpeed, incoming.WindowSpeed)
-			existing.WindowSpeed = incoming.WindowSpeed
-		}
-	}
-	if existing.DepletionGraceDays != incoming.DepletionGraceDays && incoming.DepletionGraceDays != 0 {
-		if incomingNewer || existing.DepletionGraceDays == 0 {
-			keep("depletionGraceDays", existing.DepletionGraceDays, incoming.DepletionGraceDays, incoming.DepletionGraceDays)
-			existing.DepletionGraceDays = incoming.DepletionGraceDays
-		}
-	}
-	if existing.DepletionPeriod != incoming.DepletionPeriod && incoming.DepletionPeriod != "" {
-		if incomingNewer || existing.DepletionPeriod == "" {
-			keep("depletionPeriod", existing.DepletionPeriod, incoming.DepletionPeriod, incoming.DepletionPeriod)
-			existing.DepletionPeriod = incoming.DepletionPeriod
-		}
-	}
-	if existing.DepletionPeriodGB != incoming.DepletionPeriodGB && incoming.DepletionPeriodGB != 0 {
-		if incomingNewer || existing.DepletionPeriodGB == 0 {
-			keep("depletionPeriodGB", existing.DepletionPeriodGB, incoming.DepletionPeriodGB, incoming.DepletionPeriodGB)
-			existing.DepletionPeriodGB = incoming.DepletionPeriodGB
 		}
 	}
 	if existing.Reverse != incoming.Reverse && incoming.Reverse != "" {

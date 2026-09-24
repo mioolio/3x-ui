@@ -126,15 +126,26 @@ func (a *NodeController) webCert(c *gin.Context) {
 	jsonObj(c, files, nil)
 }
 
-func (a *NodeController) ensureReachable(c *gin.Context, n *service.NodeMutationRequest, id int) error {
+func (a *NodeController) ensureReachable(c *gin.Context, n *service.NodeMutationRequest, id int, checkTopology bool, priorGuid string) error {
 	runtimeNode, err := a.nodeService.RuntimeNodeFromRequest(id, n)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 6*time.Second)
 	defer cancel()
-	if _, err := a.nodeService.Probe(ctx, runtimeNode); err != nil {
+	var patch service.HeartbeatPatch
+	if runtimeNode.OutboundTag != "" {
+		patch, err = a.nodeService.ProbeWithOutbound(ctx, runtimeNode, runtimeNode.OutboundTag)
+	} else {
+		patch, err = a.nodeService.Probe(ctx, runtimeNode)
+	}
+	if err != nil {
 		return errors.New(service.FriendlyProbeError(err.Error()))
+	}
+	if checkTopology || (n.Enable && priorGuid != "" && patch.Guid != priorGuid) {
+		if err := a.nodeService.ValidateNodeTopology(ctx, runtimeNode, patch.Guid); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -144,8 +155,10 @@ func (a *NodeController) add(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if n.OutboundTag == "" {
-		if err := a.ensureReachable(c, n, 0); err != nil {
+	// Use the temporary outbound bridge while a new enabled node has no DB
+	// row yet. Disabled nodes may be saved offline and checked when enabled.
+	if n.Enable {
+		if err := a.ensureReachable(c, n, 0, true, ""); err != nil {
 			jsonMsg(c, I18nWeb(c, "pages.nodes.toasts.add"), err)
 			return
 		}
@@ -159,9 +172,11 @@ func (a *NodeController) add(c *gin.Context) {
 		if err := a.xrayService.RestartXray(false); err != nil {
 			logger.Warning("apply node outbound bridge failed:", err)
 		}
-		if err := a.ensureReachable(c, n, view.Id); err != nil {
-			jsonMsg(c, I18nWeb(c, "pages.nodes.toasts.add"), err)
-			return
+		if n.Enable {
+			if err := a.ensureReachable(c, n, view.Id, false, ""); err != nil {
+				jsonMsg(c, I18nWeb(c, "pages.nodes.toasts.add"), err)
+				return
+			}
 		}
 	}
 	jsonMsgObj(c, I18nWeb(c, "pages.nodes.toasts.add"), view, nil)
@@ -182,8 +197,12 @@ func (a *NodeController) update(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "pages.nodes.toasts.obtain"), err)
 		return
 	}
-	if n.OutboundTag == "" && old.OutboundTag == "" && (!n.ClearApiToken || n.Enable) {
-		if err := a.ensureReachable(c, n, id); err != nil {
+	changedTarget := !old.Enable || old.Scheme != n.Scheme || old.Address != n.Address ||
+		old.Port != n.Port || old.BasePath != n.BasePath || old.OutboundTag != n.OutboundTag || n.ApiToken != nil
+	// Ordinary edits to an established outbound node remain offline-capable.
+	// An enabled new target must prove its topology before changing the DB row.
+	if n.Enable && (changedTarget || n.OutboundTag == "") {
+		if err := a.ensureReachable(c, n, id, changedTarget, old.Guid); err != nil {
 			jsonMsg(c, I18nWeb(c, "pages.nodes.toasts.update"), err)
 			return
 		}
@@ -196,9 +215,11 @@ func (a *NodeController) update(c *gin.Context) {
 		if err := a.xrayService.RestartXray(false); err != nil {
 			logger.Warning("apply node outbound bridge change failed:", err)
 		}
-		if err := a.ensureReachable(c, n, id); err != nil {
-			jsonMsg(c, I18nWeb(c, "pages.nodes.toasts.update"), err)
-			return
+		if n.Enable {
+			if err := a.ensureReachable(c, n, id, false, ""); err != nil {
+				jsonMsg(c, I18nWeb(c, "pages.nodes.toasts.update"), err)
+				return
+			}
 		}
 	}
 	jsonMsg(c, I18nWeb(c, "pages.nodes.toasts.update"), nil)
@@ -234,6 +255,25 @@ func (a *NodeController) setEnable(c *gin.Context) {
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "pages.nodes.toasts.obtain"), err)
 		return
+	}
+	if body.Enable && !n.Enable {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 6*time.Second)
+		defer cancel()
+		var patch service.HeartbeatPatch
+		var probeErr error
+		if n.OutboundTag != "" {
+			patch, probeErr = a.nodeService.ProbeWithOutbound(ctx, n, n.OutboundTag)
+		} else {
+			patch, probeErr = a.nodeService.Probe(ctx, n)
+		}
+		if probeErr != nil {
+			jsonMsg(c, I18nWeb(c, "pages.nodes.toasts.update"), errors.New(service.FriendlyProbeError(probeErr.Error())))
+			return
+		}
+		if err := a.nodeService.ValidateNodeTopology(ctx, n, patch.Guid); err != nil {
+			jsonMsg(c, I18nWeb(c, "pages.nodes.toasts.update"), err)
+			return
+		}
 	}
 	if err := a.nodeService.SetEnable(id, body.Enable); err != nil {
 		jsonMsg(c, I18nWeb(c, "pages.nodes.toasts.update"), err)

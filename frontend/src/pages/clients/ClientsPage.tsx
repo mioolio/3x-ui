@@ -1004,7 +1004,7 @@ export default function ClientsPage() {
           },
     ) => {
       if (!meta.isEdit) {
-        const createMsg = await create(payload);
+        const createMsg = await create(payload, true);
         if (!createMsg?.success) return createMsg;
         if (meta.email && meta.externalLinks.length > 0) {
           const r = await setExternalLinks(meta.email, meta.externalLinks);
@@ -1012,7 +1012,7 @@ export default function ClientsPage() {
         }
         return createMsg;
       }
-      const updateMsg = await update(meta.email, payload);
+      const updateMsg = await update(meta.email, payload, true);
       if (!updateMsg?.success) return updateMsg;
       const rawEmail = (payload as { email?: unknown }).email;
       const emailKey =
@@ -1170,8 +1170,6 @@ export default function ClientsPage() {
             up={record.traffic?.up}
             down={record.traffic?.down}
             total={record.totalGB}
-            historyUp={record.traffic?.historyUp}
-            historyDown={record.traffic?.historyDown}
             enabled={record.enable}
             trafficDiff={trafficDiff}
           />
@@ -1850,8 +1848,6 @@ export default function ClientsPage() {
                                     up={row.traffic?.up}
                                     down={row.traffic?.down}
                                     total={row.totalGB}
-                                    historyUp={row.traffic?.historyUp}
-                                    historyDown={row.traffic?.historyDown}
                                     enabled={row.enable}
                                     trafficDiff={trafficDiff}
                                   />

@@ -6,6 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 // A QUIC flow the sidecar has not touched for this long is forgotten; QUIC's
@@ -29,6 +31,8 @@ type udpRelay struct {
 	mu        sync.Mutex
 	flows     map[string]*relayFlow
 	done      chan struct{}
+	upLimit   *rate.Limiter
+	downLimit *rate.Limiter
 	closeOnce sync.Once
 	wg        sync.WaitGroup
 }
@@ -51,17 +55,47 @@ func startUDPRelay(bind string, upstream *net.UDPAddr, idle time.Duration) (*udp
 	_ = public.SetReadBuffer(relaySocketBuffer)
 	_ = public.SetWriteBuffer(relaySocketBuffer)
 	r := &udpRelay{
-		public:   public,
-		upstream: upstream,
-		idle:     idle,
-		maxFlows: maxRelayFlows,
-		flows:    make(map[string]*relayFlow),
-		done:     make(chan struct{}),
+		public:    public,
+		upstream:  upstream,
+		idle:      idle,
+		maxFlows:  maxRelayFlows,
+		flows:     make(map[string]*relayFlow),
+		done:      make(chan struct{}),
+		upLimit:   rate.NewLimiter(rate.Inf, 65535),
+		downLimit: rate.NewLimiter(rate.Inf, 65535),
 	}
 	r.wg.Add(2)
 	go r.serve()
 	go r.sweep()
 	return r, nil
+}
+
+// SetDirectionalRates applies the inbound's aggregate public-wire ceiling.
+// A zero value is unlimited. This relay cannot attribute encrypted QUIC
+// datagrams to a particular authenticated TUIC user.
+func (r *udpRelay) SetDirectionalRates(upKbps, downKbps int64) {
+	setRelayRate(r.upLimit, upKbps)
+	setRelayRate(r.downLimit, downKbps)
+}
+
+func setRelayRate(limiter *rate.Limiter, kbps int64) {
+	if kbps <= 0 {
+		limiter.SetLimit(rate.Inf)
+		limiter.SetBurst(65535)
+		return
+	}
+	bytesPerSecond := kbps * 1000 / 8
+	burst := bytesPerSecond / 4
+	// A low ceiling still needs to pass a complete QUIC datagram after tokens
+	// accrue. Limiter.AllowN rejects packets larger than Burst outright.
+	if burst < 2048 {
+		burst = 2048
+	}
+	if burst > 65535 {
+		burst = 65535
+	}
+	limiter.SetLimit(rate.Limit(bytesPerSecond))
+	limiter.SetBurst(int(burst))
 }
 
 func freeLoopbackUDPPort() (int, error) {
@@ -109,6 +143,14 @@ func (r *udpRelay) serve() {
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
+			continue
+		}
+		// The public UDP socket sees unauthenticated packets. Never wait for a
+		// malicious oversized datagram to earn tokens: one slow wait would hold
+		// every other client's upload behind it. Check before allocating a flow
+		// socket so rejected packets cannot fill the flow table either.
+		// QUIC retransmits dropped packets.
+		if !r.upLimit.AllowN(time.Now(), n) {
 			continue
 		}
 		flow, err := r.flowFor(client)
@@ -179,6 +221,9 @@ func (r *udpRelay) pump(f *relayFlow) {
 			}
 			// ICMP unreachable while the sidecar restarts: drop it, keep the flow.
 			time.Sleep(20 * time.Millisecond)
+			continue
+		}
+		if !r.downLimit.AllowN(time.Now(), n) {
 			continue
 		}
 		if _, err := r.public.WriteToUDP(buf[:n], f.client); err == nil {

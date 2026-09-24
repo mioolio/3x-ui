@@ -295,7 +295,6 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 const (
 	cadenceXrayRunning   = "@every 1s"
 	cadenceXrayRestart   = "@every 30s"
-	cadenceThrottleSync  = "@every 10s"
 	cadenceXrayTraffic   = "@every 5s"
 	cadenceMtproto       = "@every 10s"
 	cadenceAmneziaWG     = "@every 10s"
@@ -317,9 +316,6 @@ const (
 // startTask schedules background jobs (Xray checks, traffic jobs, cron
 // jobs) which the panel relies on for periodic maintenance and monitoring.
 func (s *Server) startTask(restartXray bool, loc *time.Location) {
-	// Bind the throttle relay before the first Xray start so the generated
-	// config's throttle outbounds have their listener ready.
-	s.xrayService.SyncThrottling()
 	if restartXray {
 		err := s.xrayService.RestartXray(true)
 		if err != nil {
@@ -332,12 +328,6 @@ func (s *Server) startTask(restartXray bool, loc *time.Location) {
 	// Check if xray needs to be restarted every 30 seconds
 	_, _ = s.cron.AddFunc(cadenceXrayRestart, func() {
 		s.xrayService.ApplyPendingRestart()
-	})
-
-	// Align per-client throttle rules with the DB; rate values ride the relay
-	// live, only a changed limited-client set touches the core (hot apply).
-	_, _ = s.cron.AddFunc(cadenceThrottleSync, func() {
-		s.xrayService.SyncThrottling()
 	})
 
 	go func() {

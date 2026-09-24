@@ -13,8 +13,6 @@ export const ClientTrafficSchema = z.object({
   up: z.number().optional(),
   down: z.number().optional(),
   total: z.number().optional(),
-  historyUp: z.number().optional(),
-  historyDown: z.number().optional(),
   expiryTime: z.number().optional(),
   enable: z.boolean().optional(),
   lastOnline: z.number().optional(),
@@ -34,6 +32,24 @@ export const ClientRecordSchema = z
     flow: z.string().optional(),
     security: z.string().optional(),
     totalGB: z.number().optional(),
+    speedLimitKbps: z.number().optional(),
+    speedLimitUpKbps: z.number().nullish(),
+    speedLimitDownKbps: z.number().nullish(),
+    windowQuotaBytes: z.number().optional(),
+    windowHours: z.number().optional(),
+    windowMode: z.string().optional(),
+    totalExhaustAction: z.enum(['stop', 'throttle']).optional(),
+    totalExhaustUpKbps: z.number().optional(),
+    totalExhaustDownKbps: z.number().optional(),
+    totalOverageMultiplierBps: z.number().optional(),
+    windowExhaustAction: z.enum(['stop', 'throttle']).optional(),
+    windowExhaustUpKbps: z.number().optional(),
+    windowExhaustDownKbps: z.number().optional(),
+    windowOverageMultiplierBps: z.number().optional(),
+    graceHours: z.number().optional(),
+    graceUpKbps: z.number().optional(),
+    graceDownKbps: z.number().optional(),
+    graceQuotaBytes: z.number().optional(),
     expiryTime: z.number().optional(),
     limitIp: z.number().optional(),
     limitHwid: z.number().optional(),
@@ -46,17 +62,6 @@ export const ClientRecordSchema = z
     resetMax: z.number().optional(),
     trafficReset: z.string().optional(),
     trafficResetDay: z.number().optional(),
-    speedLimitUp: z.number().optional(),
-    speedLimitDown: z.number().optional(),
-    depletionAction: z.string().optional(),
-    depletionSpeed: z.number().optional(),
-    depletionGraceDays: z.number().optional(),
-    depletionPeriod: z.string().optional(),
-    depletionPeriodGB: z.number().optional(),
-    windowQuotaGB: z.number().optional(),
-    windowMinutes: z.number().optional(),
-    windowAction: z.string().optional(),
-    windowSpeed: z.number().optional(),
     inboundIds: nullableNumberArray.optional(),
     traffic: ClientTrafficSchema.nullable().optional(),
     reverse: z.object({ tag: z.string().optional() }).loose().nullable().optional(),
@@ -150,6 +155,7 @@ export const InboundOptionSchema = z
     mtprotoDomain: z.string().optional(),
     // Hosting node id; absent/null for this panel's own inbounds (#4997).
     nodeId: z.number().nullable().optional(),
+    nodeName: z.string().optional(),
     // Share-host resolution inputs, mirroring the backend resolveInboundAddress so
     // the clients page picks the same WireGuard endpoint host as the subscription:
     // the hosting node address, the inbound listen, and its share-address strategy.
@@ -323,8 +329,6 @@ export function hasForbiddenClientChars(value: string): boolean {
   return false;
 }
 
-export const BandwidthActionSchema = z.enum(['', 'disable', 'throttle']);
-
 export const ClientFormSchema = z.object({
   email: z
     .string()
@@ -339,6 +343,23 @@ export const ClientFormSchema = z.object({
   security: z.string(),
   reverseTag: z.string(),
   totalGB: z.number().min(0),
+  speedLimitUpKbps: z.number().int().min(0).max(1000000000),
+  speedLimitDownKbps: z.number().int().min(0).max(1000000000),
+  windowQuotaGB: z.number().min(0),
+  windowHours: z.number().int().min(0).max(8760),
+  windowMode: z.enum(['fixed', 'rolling']),
+  totalExhaustAction: z.enum(['stop', 'throttle']),
+  totalExhaustUpKbps: z.number().int().min(0).max(1000000000),
+  totalExhaustDownKbps: z.number().int().min(0).max(1000000000),
+  totalOverageMultiplierBps: z.number().int().min(10000).max(1000000),
+  windowExhaustAction: z.enum(['stop', 'throttle']),
+  windowExhaustUpKbps: z.number().int().min(0).max(1000000000),
+  windowExhaustDownKbps: z.number().int().min(0).max(1000000000),
+  windowOverageMultiplierBps: z.number().int().min(10000).max(1000000),
+  graceHours: z.number().int().min(0).max(8760),
+  graceUpKbps: z.number().int().min(0).max(1000000000),
+  graceDownKbps: z.number().int().min(0).max(1000000000),
+  graceQuotaGB: z.number().min(0),
   delayedStart: z.boolean(),
   delayedDays: z.number().int().min(0),
   reset: z.number().int().min(0),
@@ -353,19 +374,6 @@ export const ClientFormSchema = z.object({
   comment: z.string(),
   enable: z.boolean(),
   inboundIds: z.array(z.number()),
-  // Kbps caps, 0 = unlimited. windowQuotaGB is entered in GB and converted to
-  // bytes on submit, mirroring totalGB.
-  speedLimitUp: z.number().min(0),
-  speedLimitDown: z.number().min(0),
-  depletionAction: BandwidthActionSchema,
-  depletionSpeed: z.number().min(0),
-  depletionGraceDays: z.number().int().min(0),
-  depletionPeriod: z.enum(['never', 'daily', 'weekly', 'monthly']),
-  depletionPeriodGB: z.number().min(0),
-  windowQuotaGB: z.number().min(0),
-  windowMinutes: z.number().int().min(0),
-  windowAction: BandwidthActionSchema,
-  windowSpeed: z.number().min(0),
 });
 
 export const ClientCreateFormSchema = ClientFormSchema.extend({

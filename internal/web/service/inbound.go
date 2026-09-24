@@ -350,6 +350,9 @@ type InboundOption struct {
 	// Hosting node; nil for this panel's own inbounds. Lets the clients
 	// page map a node filter onto inbound IDs (#4997).
 	NodeId *int `json:"nodeId,omitempty"`
+	// Display the hosting node alongside the inbound ID so two inbounds with
+	// the same remark remain distinguishable in client attachment controls.
+	NodeName string `json:"nodeName,omitempty"`
 	// Share-host resolution inputs, mirroring the subscription's
 	// resolveInboundAddress so the clients page renders a node-managed WireGuard
 	// Endpoint that points at the node, not the master panel. NodeAddress is the
@@ -377,11 +380,12 @@ func (s *InboundService) GetInboundOptions(userId int) ([]InboundOption, error) 
 		ShareAddr         string `gorm:"column:share_addr"`
 		ShareAddrStrategy string `gorm:"column:share_addr_strategy"`
 		NodeId            *int   `gorm:"column:node_id"`
+		NodeName          string `gorm:"column:node_name"`
 		NodeAddress       string `gorm:"column:node_address"`
 		DisableFlow       bool   `gorm:"column:disable_flow"`
 	}
 	err := db.Table("inbounds").
-		Select("inbounds.id, inbounds.remark, inbounds.tag, inbounds.protocol, inbounds.port, inbounds.enable, inbounds.stream_settings, inbounds.settings, inbounds.listen, inbounds.share_addr, inbounds.share_addr_strategy, inbounds.node_id, inbounds.window_quota_gb, inbounds.window_minutes, inbounds.window_action, inbounds.window_speed, COALESCE(nodes.address, '') AS node_address, inbounds.disable_flow").
+		Select("inbounds.id, inbounds.remark, inbounds.tag, inbounds.protocol, inbounds.port, inbounds.enable, inbounds.stream_settings, inbounds.settings, inbounds.listen, inbounds.share_addr, inbounds.share_addr_strategy, inbounds.node_id, COALESCE(nodes.name, '') AS node_name, COALESCE(nodes.address, '') AS node_address, inbounds.disable_flow").
 		Joins("LEFT JOIN nodes ON nodes.id = inbounds.node_id").
 		Where("inbounds.user_id = ?", userId).
 		Order("inbounds.id ASC").
@@ -415,6 +419,7 @@ func (s *InboundService) GetInboundOptions(userId int) ([]InboundOption, error) 
 			AwgServer:         inboundAmneziaWGServer(r.Protocol, r.Settings),
 			TuicServer:        inboundTuicServer(r.Protocol, r.Settings),
 			NodeId:            r.NodeId,
+			NodeName:          r.NodeName,
 			NodeAddress:       r.NodeAddress,
 			Listen:            r.Listen,
 			ShareAddr:         r.ShareAddr,
@@ -559,6 +564,12 @@ func (s *InboundService) GetInboundsByTrafficReset(period string) ([]*model.Inbo
 		return nil, err
 	}
 	return inbounds, nil
+}
+
+// MarkTrafficReset records the successful completion of a scheduled reset.
+func (s *InboundService) MarkTrafficReset(id int, at int64) error {
+	return database.GetDB().Model(&model.Inbound{}).Where("id = ?", id).
+		Update("last_traffic_reset_time", at).Error
 }
 
 func (s *InboundService) GetClients(inbound *model.Inbound) ([]model.Client, error) {
@@ -991,6 +1002,9 @@ func mtprotoRoutesThroughXray(inbound *model.Inbound) bool {
 	if inbound == nil || inbound.Protocol != model.MTProto {
 		return false
 	}
+	if mtproto.InboundHasRate(inbound) {
+		return true
+	}
 	var parsed struct {
 		RouteThroughXray bool `json:"routeThroughXray"`
 	}
@@ -1001,17 +1015,24 @@ func mtprotoRoutesThroughXray(inbound *model.Inbound) bool {
 }
 
 func settingsRouteXrayPort(parsed map[string]any) int {
+	var port int
 	switch v := parsed["routeXrayPort"].(type) {
 	case float64:
-		return int(v)
+		if v < 1 || v > 65535 || v != float64(int(v)) {
+			return 0
+		}
+		port = int(v)
 	case int:
-		return v
+		port = v
 	case json.Number:
-		if n, err := v.Int64(); err == nil {
-			return int(n)
+		if n, err := v.Int64(); err == nil && n >= 1 && n <= 65535 {
+			port = int(n)
 		}
 	}
-	return 0
+	if port < 1 || port > 65535 {
+		return 0
+	}
+	return port
 }
 
 func parseRouteXrayPort(settings string) int {
@@ -1045,21 +1066,49 @@ func (s *InboundService) normalizeMtprotoXrayPort(inbound *model.Inbound, oldSet
 	if err := json.Unmarshal([]byte(inbound.Settings), &parsed); err != nil || parsed == nil {
 		return nil
 	}
-	routed, _ := parsed["routeThroughXray"].(bool)
+	userRouted, _ := parsed["routeThroughXray"].(bool)
+	rateViaXray := mtproto.InboundHasRate(inbound)
+	routed := userRouted || rateViaXray
+	// A speed ceiling needs Xray as a shaper, but does not opt the user into
+	// custom Xray egress routing. Drop an old outbound selection when the
+	// explicit routeThroughXray option is off.
+	removedTag := false
+	if !userRouted {
+		_, removedTag = parsed["outboundTag"]
+		delete(parsed, "outboundTag")
+	}
 	if !routed {
 		_, hadPort := parsed["routeXrayPort"]
-		_, hadTag := parsed["outboundTag"]
-		if !hadPort && !hadTag {
+		_, hadPassword := parsed["rateBridgePassword"]
+		if !hadPort && !removedTag && !hadPassword {
 			return nil
 		}
 		delete(parsed, "routeXrayPort")
-		delete(parsed, "outboundTag")
+		delete(parsed, "rateBridgePassword")
 		if bs, err := json.MarshalIndent(parsed, "", "  "); err == nil {
 			inbound.Settings = string(bs)
 		} else {
 			logger.Warning("mtproto: failed to marshal settings after disabling routing:", err)
 		}
 		return nil
+	}
+	passwordChanged := false
+	if rateViaXray {
+		var prior struct {
+			RateBridgePassword string `json:"rateBridgePassword"`
+		}
+		_ = json.Unmarshal([]byte(oldSettings), &prior)
+		password := prior.RateBridgePassword
+		if _, err := uuid.Parse(password); err != nil {
+			password = uuid.NewString()
+		}
+		if parsed["rateBridgePassword"] != password {
+			parsed["rateBridgePassword"] = password
+			passwordChanged = true
+		}
+	} else if _, hadPassword := parsed["rateBridgePassword"]; hadPassword {
+		delete(parsed, "rateBridgePassword")
+		passwordChanged = true
 	}
 
 	// Prefer the already-stored port (carried across edits), then any value the
@@ -1075,7 +1124,7 @@ func (s *InboundService) normalizeMtprotoXrayPort(inbound *model.Inbound, oldSet
 		}
 		port = allocated
 	}
-	if settingsRouteXrayPort(parsed) == port {
+	if settingsRouteXrayPort(parsed) == port && !removedTag && !passwordChanged {
 		return nil
 	}
 	parsed["routeXrayPort"] = port
@@ -1095,6 +1144,28 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 	inbound.Id = 0
 	legacyShareAddr := legacyMtprotoShareAddr(inbound)
 	inbound.TrafficResetDay = normalizeTrafficResetDay(inbound.TrafficResetDay)
+	if inbound.TrafficResetInterval < 1 {
+		inbound.TrafficResetInterval = 1
+	}
+	if inbound.TrafficResetInterval > 10000 {
+		return nil, false, common.NewError("trafficResetInterval must be at most 10000")
+	}
+	if inbound.SpeedLimitKbps < 0 || inbound.SpeedLimitKbps > 1000000000 {
+		return nil, false, common.NewError("speedLimitKbps must be between 0 and 1000000000")
+	}
+	if err := validateDirectionalRate("inbound", inbound.SpeedLimitUpKbps, inbound.SpeedLimitDownKbps); err != nil {
+		return nil, false, err
+	}
+	inbound.TrafficMultiplierBps = model.EffectiveTrafficMultiplierBps(inbound.TrafficMultiplierBps)
+	if inbound.TrafficMultiplierBps < 100 || inbound.TrafficMultiplierBps > model.MaxTrafficMultiplierBps {
+		return nil, false, common.NewError("trafficMultiplierBps must be between 100 and 9007199254740991")
+	}
+	if inbound.Protocol == model.TUIC && inbound.TrafficMultiplierBps != model.DefaultTrafficMultiplierBps {
+		return nil, false, common.NewError("TUIC does not expose authenticated per-client traffic for inbound multiplier accounting")
+	}
+	if inbound.TrafficResetInterval > 1 && inbound.LastTrafficResetTime == 0 {
+		inbound.LastTrafficResetTime = time.Now().UnixMilli()
+	}
 	// Normalize streamSettings based on protocol
 	s.normalizeStreamSettings(inbound)
 	if !s.FromNodeSync {
@@ -1679,6 +1750,18 @@ func (s *InboundService) SetInboundEnable(id int, enable bool) (bool, error) {
 func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, bool, error) {
 	legacyShareAddr := legacyMtprotoShareAddr(inbound)
 	inbound.TrafficResetDay = normalizeTrafficResetDay(inbound.TrafficResetDay)
+	if inbound.TrafficResetInterval < 1 {
+		inbound.TrafficResetInterval = 1
+	}
+	if inbound.TrafficResetInterval > 10000 {
+		return nil, false, common.NewError("trafficResetInterval must be at most 10000")
+	}
+	if inbound.SpeedLimitKbps < 0 || inbound.SpeedLimitKbps > 1000000000 {
+		return nil, false, common.NewError("speedLimitKbps must be between 0 and 1000000000")
+	}
+	if err := validateDirectionalRate("inbound", inbound.SpeedLimitUpKbps, inbound.SpeedLimitDownKbps); err != nil {
+		return nil, false, err
+	}
 	// Normalize streamSettings based on protocol
 	s.normalizeStreamSettings(inbound)
 	if err := validateFinalMaskRealityCombo(inbound.StreamSettings); err != nil {
@@ -1692,6 +1775,22 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	oldInbound, err := s.GetInbound(inbound.Id)
 	if err != nil {
 		return inbound, false, err
+	}
+	if inbound.TrafficMultiplierBps == 0 {
+		// Older API clients omit this newer field. Preserve an existing factor.
+		inbound.TrafficMultiplierBps = model.EffectiveTrafficMultiplierBps(oldInbound.TrafficMultiplierBps)
+	}
+	if inbound.TrafficMultiplierBps < 100 || inbound.TrafficMultiplierBps > model.MaxTrafficMultiplierBps {
+		return nil, false, common.NewError("trafficMultiplierBps must be between 100 and 9007199254740991")
+	}
+	if inbound.Protocol == model.TUIC && inbound.TrafficMultiplierBps != model.DefaultTrafficMultiplierBps {
+		return nil, false, common.NewError("TUIC does not expose authenticated per-client traffic for inbound multiplier accounting")
+	}
+	if inbound.SpeedLimitUpKbps == nil && inbound.SpeedLimitDownKbps == nil && inbound.SpeedLimitKbps == oldInbound.SpeedLimitKbps {
+		// An older API caller only knows the symmetric field. Preserve explicit
+		// directional limits unless that caller actually changes its rate.
+		inbound.SpeedLimitUpKbps = oldInbound.SpeedLimitUpKbps
+		inbound.SpeedLimitDownKbps = oldInbound.SpeedLimitDownKbps
 	}
 	if err := s.normalizeAmneziaWGSettings(inbound, oldInbound.Settings); err != nil {
 		return inbound, false, err
@@ -1851,12 +1950,20 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 		}
 
 		oldInbound.Total = inbound.Total
+		oldInbound.SpeedLimitKbps = inbound.SpeedLimitKbps
+		oldInbound.SpeedLimitUpKbps = inbound.SpeedLimitUpKbps
+		oldInbound.SpeedLimitDownKbps = inbound.SpeedLimitDownKbps
+		oldInbound.TrafficMultiplierBps = inbound.TrafficMultiplierBps
 		oldInbound.Remark = inbound.Remark
 		oldInbound.SubSortIndex = inbound.SubSortIndex
 		oldInbound.Enable = inbound.Enable
 		oldInbound.ExpiryTime = inbound.ExpiryTime
+		if inbound.TrafficResetInterval > 1 && (oldInbound.TrafficResetInterval != inbound.TrafficResetInterval || oldInbound.TrafficReset != inbound.TrafficReset) {
+			oldInbound.LastTrafficResetTime = time.Now().UnixMilli()
+		}
 		oldInbound.TrafficReset = inbound.TrafficReset
 		oldInbound.TrafficResetDay = inbound.TrafficResetDay
+		oldInbound.TrafficResetInterval = inbound.TrafficResetInterval
 		oldInbound.Listen = inbound.Listen
 		oldInbound.Port = inbound.Port
 		oldInbound.Protocol = inbound.Protocol
@@ -1864,10 +1971,6 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 		oldInbound.Settings = inbound.Settings
 		oldInbound.StreamSettings = inbound.StreamSettings
 		oldInbound.Sniffing = inbound.Sniffing
-		oldInbound.WindowQuotaGB = inbound.WindowQuotaGB
-		oldInbound.WindowMinutes = inbound.WindowMinutes
-		oldInbound.WindowAction = inbound.WindowAction
-		oldInbound.WindowSpeed = inbound.WindowSpeed
 		if strings.TrimSpace(inbound.ShareAddrStrategy) == "" {
 			normalizeInboundShareAddress(oldInbound)
 			inbound.ShareAddrStrategy = oldInbound.ShareAddrStrategy
@@ -2057,16 +2160,38 @@ func (s *InboundService) buildInboundForLocalRuntime(tx *gorm.DB, inbound *model
 		return built, nil
 	}
 
+	emailSet := make(map[string]struct{}, len(clients))
+	for _, client := range clients {
+		if c, ok := client.(map[string]any); ok {
+			if email, ok := c["email"].(string); ok && email != "" {
+				emailSet[email] = struct{}{}
+			}
+		}
+	}
+	emails := make([]string, 0, len(emailSet))
+	for email := range emailSet {
+		emails = append(emails, email)
+	}
 	var clientStats []xray.ClientTraffic
-	if err := tx.Model(xray.ClientTraffic{}).
-		Where("inbound_id = ?", built.Id).
-		Select("email", "enable").
-		Find(&clientStats).Error; err != nil {
-		return nil, err
+	for _, batch := range chunkStrings(emails, 400) {
+		var rows []xray.ClientTraffic
+		if err := tx.Model(xray.ClientTraffic{}).
+			Where("email IN ?", batch).
+			Select("email", "enable").Find(&rows).Error; err != nil {
+			return nil, err
+		}
+		clientStats = append(clientStats, rows...)
 	}
 	enableMap := make(map[string]bool, len(clientStats))
 	for _, clientTraffic := range clientStats {
 		enableMap[clientTraffic.Email] = clientTraffic.Enable
+	}
+	var globalWindowStops, inboundWindowStops map[string]bool
+	if built.Protocol == model.MTProto {
+		globalWindowStops, inboundWindowStops, err = mtprotoWindowHardStops(tx, emails, []*model.Inbound{built})
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	finalClients := make([]any, 0, len(clients))
@@ -2077,6 +2202,9 @@ func (s *InboundService) buildInboundForLocalRuntime(tx *gorm.DB, inbound *model
 		}
 		email, _ := c["email"].(string)
 		if enable, exists := enableMap[email]; exists && !enable {
+			continue
+		}
+		if globalWindowStops[email] || inboundWindowStops[built.Tag+"\x00"+email] {
 			continue
 		}
 		if manualEnable, ok := c["enable"].(bool); ok && !manualEnable {

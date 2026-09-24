@@ -138,6 +138,39 @@ func TestRemoteDo_NonOKStatusReturnsHTTPError(t *testing.T) {
 	}
 }
 
+func TestIsMissingPolicyEndpointOnlyMatchesHTTP404(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		want   bool
+	}{
+		{http.StatusNotFound, true},
+		{http.StatusForbidden, false},
+		{http.StatusInternalServerError, false},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "missing", tc.status)
+		}))
+		r := NewRemote(nodeForPlainServer(t, srv, "verify", "tok"), nil)
+		_, err := r.do(context.Background(), http.MethodPost, "panel/api/clients/user/directionalRates", nil)
+		srv.Close()
+		if got := IsMissingPolicyEndpoint(err); got != tc.want {
+			t.Fatalf("status %d: IsMissingPolicyEndpoint(%v) = %v, want %v", tc.status, err, got, tc.want)
+		}
+	}
+	if IsMissingPolicyEndpoint(errors.New("HTTP 404")) {
+		t.Fatal("plain diagnostic text is not an HTTP status")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		http.NotFound(w, req)
+	}))
+	defer srv.Close()
+	r := NewRemote(nodeForPlainServer(t, srv, "verify", "tok"), nil)
+	_, err := r.do(context.Background(), http.MethodGet, "panel/api/inbounds/list", nil)
+	if IsMissingPolicyEndpoint(err) {
+		t.Fatalf("inbound lookup 404 was mistaken for an optional policy route: %v", err)
+	}
+}
+
 type stubEgress struct{ url string }
 
 func (s stubEgress) NodeEgressProxyURL(int) string { return s.url }

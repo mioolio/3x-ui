@@ -23,7 +23,7 @@ release/
 node_modules/
 
 # Ignore compiled binaries
-main
+/main
 3x-ui
 
 # Ignore OS specific files

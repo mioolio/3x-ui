@@ -11,18 +11,74 @@ import {
 } from '@/lib/xray/inbound-link';
 import { LinkTags, parseLinkParts } from '@/lib/xray/link-label';
 import SubQrButton from './SubQrButton';
+import SubWindowCard from './SubWindowCard';
+import { formatMaximumKbps, formatTrafficMultiplier } from './subPageModel';
 
 interface SubConfigsTabProps {
   links: string[];
+  nodes: SubNodeOverview[];
+  lang: string;
+  now: number;
   onCopy: (value: string, toast?: string) => void;
 }
 
-export default function SubConfigsTab({ links, onCopy }: SubConfigsTabProps) {
+export default function SubConfigsTab({ links, nodes, lang, now, onCopy }: SubConfigsTabProps) {
   const { t } = useTranslation();
+  const multiAccount = new Set(nodes.map((node) => node.accountIndex)).size > 1;
 
   return (
     <div className="sub-rows">
+      {nodes.length > 0 && (
+        <section className="sub-node-overviews" aria-label={t('subscription.nodeOverview')}>
+          <div className="sub-section-heading">
+            <h2>{t('subscription.nodeOverview')}</h2>
+            <span>{t('subscription.nodeOverviewHint')}</span>
+          </div>
+          <div className="sub-node-grid">
+            {nodes.map((node) => (
+              <article className="sub-node-card" key={`${node.inboundId}:${node.accountIndex}`}>
+                <div className="sub-node-heading">
+                  <div className="sub-node-name">
+                    <span className="sub-node-overline">{node.protocol.toUpperCase()}</span>
+                    <h3 dir="auto">{node.remark || `#${node.inboundId}`}</h3>
+                    {multiAccount && (
+                      <span className="sub-node-account">
+                        {t('subscription.accountNumber', { number: node.accountIndex })}
+                      </span>
+                    )}
+                  </div>
+                  {node.trafficMultiplierBps !== 10_000 && (
+                    <Tag className="sub-multiplier-tag" title={t('subscription.trafficFactor')}>
+                      {formatTrafficMultiplier(node.trafficMultiplierBps, lang)}
+                    </Tag>
+                  )}
+                </div>
+                <dl className="sub-node-speeds">
+                  <div>
+                    <dt>{t('subscription.maxUpload')}</dt>
+                    <dd>{formatMaximumKbps(node.maxUpKbps, lang)}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('subscription.maxDownload')}</dt>
+                    <dd>{formatMaximumKbps(node.maxDownKbps, lang)}</dd>
+                  </div>
+                </dl>
+                {node.usageTracked === false ? (
+                  <div className="sub-node-shared">{t('subscription.nodeUsageNotTracked')}</div>
+                ) : node.window && node.window.quotaBytes > 0 ? (
+                  <SubWindowCard window={node.window} lang={lang} now={now} compact />
+                ) : node.windowConfigured ? (
+                  <div className="sub-node-shared">{t('subscription.nodeUsageUnavailable')}</div>
+                ) : (
+                  <div className="sub-node-shared">{t('subscription.sharedQuota')}</div>
+                )}
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
       <div className="sub-configs-bar">
+        <h2>{t('subscription.individualLinks')}</h2>
         <Button
           icon={<CopyOutlined />}
           onClick={() => onCopy(links.join('\n'), t('subscription.copyAllConfigsCopied'))}

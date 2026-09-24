@@ -44,16 +44,17 @@ export interface RawInboundRow {
   up?: number;
   down?: number;
   total?: number;
+  speedLimitKbps?: number;
+  speedLimitUpKbps?: number | null;
+  speedLimitDownKbps?: number | null;
+  trafficMultiplierBps?: number;
   remark?: string;
   enable?: boolean;
   expiryTime?: number;
   trafficReset?: string;
   trafficResetDay?: number;
+  trafficResetInterval?: number;
   lastTrafficResetTime?: number;
-  windowQuotaGB?: number;
-  windowMinutes?: number;
-  windowAction?: string;
-  windowSpeed?: number;
   nodeId?: number | null;
   shareAddrStrategy?: string;
   shareAddr?: string;
@@ -69,16 +70,17 @@ export interface WireInboundPayload {
   up: number;
   down: number;
   total: number;
+  speedLimitKbps: number;
+  speedLimitUpKbps: number;
+  speedLimitDownKbps: number;
+  trafficMultiplierBps: number;
   remark: string;
   enable: boolean;
   expiryTime: number;
   trafficReset: TrafficReset;
   trafficResetDay: number;
+  trafficResetInterval: number;
   lastTrafficResetTime: number;
-  windowQuotaGB: number;
-  windowMinutes: number;
-  windowAction: string;
-  windowSpeed: number;
   listen: string;
   port: number;
   protocol: string;
@@ -119,23 +121,6 @@ function coerceTrafficReset(v: unknown): TrafficReset {
   return typeof v === 'string' && (TRAFFIC_RESETS as string[]).includes(v)
     ? (v as TrafficReset)
     : 'never';
-}
-
-const ONE_GB = 1024 * 1024 * 1024;
-
-// The stored quota columns are byte counts (like totalGB); the form edits GB.
-function bytesToGB(bytes: number): number {
-  if (!bytes || bytes <= 0) return 0;
-  return Math.round((bytes / ONE_GB) * 100) / 100;
-}
-
-function gbToBytes(gb: number): number {
-  if (!gb || gb <= 0) return 0;
-  return Math.round(gb * ONE_GB);
-}
-
-function coercePlanAction(value: unknown): string {
-  return value === 'disable' || value === 'throttle' ? value : '';
 }
 
 function coerceShareAddrStrategy(v: unknown): ShareAddrStrategy {
@@ -237,12 +222,14 @@ export function rawInboundToFormValues(row: RawInboundRow): InboundFormValues {
     up: row.up ?? 0,
     down: row.down ?? 0,
     total: row.total ?? 0,
+    // Older rows have only the shared limit. New rows clear it on save.
+    speedLimitKbps: row.speedLimitKbps ?? 0,
+    speedLimitUpKbps: row.speedLimitUpKbps ?? row.speedLimitKbps ?? 0,
+    speedLimitDownKbps: row.speedLimitDownKbps ?? row.speedLimitKbps ?? 0,
+    trafficMultiplierBps: (row.trafficMultiplierBps ?? 0) > 0 ? row.trafficMultiplierBps! : 10000,
     trafficReset: coerceTrafficReset(row.trafficReset),
     trafficResetDay: Math.min(31, Math.max(1, row.trafficResetDay ?? 1)),
-    windowQuotaGB: bytesToGB(Math.max(0, Number(row.windowQuotaGB) || 0)),
-    windowMinutes: Math.max(0, Number(row.windowMinutes) || 0),
-    windowAction: coercePlanAction(row.windowAction),
-    windowSpeed: Math.max(0, Number(row.windowSpeed) || 0),
+    trafficResetInterval: Math.min(10000, Math.max(1, row.trafficResetInterval ?? 1)),
     lastTrafficResetTime: row.lastTrafficResetTime ?? 0,
     nodeId: row.nodeId ?? null,
     shareAddrStrategy: coerceShareAddrStrategy(row.shareAddrStrategy),
@@ -396,16 +383,16 @@ export function formValuesToWirePayload(values: InboundFormValues): WireInboundP
     up: values.up,
     down: values.down,
     total: values.total,
+    speedLimitKbps: 0,
+    speedLimitUpKbps: values.speedLimitUpKbps,
+    speedLimitDownKbps: values.speedLimitDownKbps,
+    trafficMultiplierBps: values.trafficMultiplierBps,
     remark: values.remark,
     enable: values.enable,
     expiryTime: values.expiryTime,
     trafficReset: values.trafficReset,
     trafficResetDay: values.trafficResetDay,
-    windowQuotaGB: values.windowMinutes > 0 ? gbToBytes(Math.max(0, Number(values.windowQuotaGB) || 0)) : 0,
-    windowMinutes: values.windowMinutes,
-    windowAction: values.windowMinutes > 0 ? values.windowAction : '',
-    windowSpeed:
-      values.windowMinutes > 0 && values.windowAction === 'throttle' ? values.windowSpeed : 0,
+    trafficResetInterval: values.trafficResetInterval,
     lastTrafficResetTime: values.lastTrafficResetTime,
     listen: values.listen,
     port: values.port,

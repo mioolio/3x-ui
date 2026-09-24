@@ -113,7 +113,7 @@ func (s *SubClashService) getClash(subId string, host string, legacy bool) (stri
 	slices.Sort(emails)
 	traffic, _ := subReq.AggregateTrafficByEmails(emails)
 	traffic.Enable = hasEnabledClient
-	header := subReq.subscriptionUserinfo(traffic)
+	header := subReq.subscriptionUserinfo(subReq.subscriptionHeaderTraffic(subId, traffic))
 
 	if mode, remark := subReq.resolveInfoNodeRemark(subId, emails, traffic, len(proxies) > 0); mode != infoNodeNone {
 		dummyProxy := map[string]any{
@@ -122,7 +122,7 @@ func (s *SubClashService) getClash(subId string, host string, legacy bool) (stri
 			"server": "127.0.0.1",
 			"port":   1080,
 		}
-		if mode == infoNodeExpired || mode == infoNodeDepleted {
+		if mode == infoNodeExpired || mode == infoNodeDepleted || mode == infoNodeDisabled {
 			proxies = []map[string]any{dummyProxy}
 		} else {
 			proxies = append([]map[string]any{dummyProxy}, proxies...)

@@ -42,6 +42,34 @@ func monthlyResetDue(resetDay int, now time.Time) bool {
 	return now.Day() == min(resetDay, lastDay)
 }
 
+// intervalResetDue uses the last successful reset as the start of a custom
+// cycle. The legacy one-unit schedules retain their calendar behaviour.
+func intervalResetDue(period Period, count int, lastMillis int64, now time.Time) bool {
+	if count <= 1 {
+		return true
+	}
+	if lastMillis <= 0 {
+		return true
+	}
+	last := time.UnixMilli(lastMillis).In(now.Location())
+	switch period {
+	case "hourly":
+		return !now.Before(last.Add(time.Duration(count) * time.Hour))
+	case "daily":
+		start := time.Date(last.Year(), last.Month(), last.Day(), 0, 0, 0, 0, now.Location())
+		return !now.Before(start.AddDate(0, 0, count))
+	case "weekly":
+		start := time.Date(last.Year(), last.Month(), last.Day(), 0, 0, 0, 0, now.Location())
+		return !now.Before(start.AddDate(0, 0, 7*count))
+	case "monthly":
+		targetMonth := time.Date(last.Year(), last.Month(), 1, 0, 0, 0, 0, now.Location()).AddDate(0, count, 0)
+		lastDay := time.Date(targetMonth.Year(), targetMonth.Month()+1, 0, 0, 0, 0, 0, now.Location()).Day()
+		target := time.Date(targetMonth.Year(), targetMonth.Month(), min(last.Day(), lastDay), 0, 0, 0, 0, now.Location())
+		return !now.Before(target)
+	}
+	return false
+}
+
 func forEachResetBounded(n int, reset func(i int)) {
 	sem := make(chan struct{}, periodicResetConcurrency)
 	var wg sync.WaitGroup
@@ -71,16 +99,18 @@ func (j *PeriodicTrafficResetJob) resetInboundsOnSchedule() {
 		return
 	}
 
-	if j.period == "monthly" {
-		now := time.Now().In(j.location)
-		due := inbounds[:0]
-		for _, inbound := range inbounds {
-			if monthlyResetDue(inbound.TrafficResetDay, now) {
+	now := time.Now().In(j.location)
+	due := inbounds[:0]
+	for _, inbound := range inbounds {
+		if inbound.TrafficResetInterval > 1 {
+			if intervalResetDue(j.period, inbound.TrafficResetInterval, inbound.LastTrafficResetTime, now) {
 				due = append(due, inbound)
 			}
+		} else if j.period != "monthly" || monthlyResetDue(inbound.TrafficResetDay, now) {
+			due = append(due, inbound)
 		}
-		inbounds = due
 	}
+	inbounds = due
 	if len(inbounds) == 0 {
 		return
 	}
@@ -100,6 +130,10 @@ func (j *PeriodicTrafficResetJob) resetInboundsOnSchedule() {
 		}
 
 		if resetInboundErr == nil && resetClientErr == nil {
+			if err := j.inboundService.MarkTrafficReset(inbound.Id, now.UnixMilli()); err != nil {
+				logger.Warning("Failed to mark traffic reset for inbound", inbound.Id, ":", err)
+				return
+			}
 			resetCount.Add(1)
 		}
 	})

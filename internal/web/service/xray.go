@@ -16,6 +16,7 @@ import (
 	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
+	"github.com/mhsanaei/3x-ui/v3/internal/mtproto"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/json_util"
 	"github.com/mhsanaei/3x-ui/v3/internal/xray"
 
@@ -192,6 +193,9 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 
 	inbounds, err := s.inboundService.GetAllInbounds()
 	if err != nil {
+		return nil, err
+	}
+	if err := s.inboundService.ensureMtprotoRateBridges(inbounds); err != nil {
 		return nil, err
 	}
 	for _, inbound := range inbounds {
@@ -448,12 +452,6 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 		injectNodeEgresses(xrayConfig, nodes)
 	}
 
-	// Per-client bandwidth throttling: a loopback egress inbound, one socks
-	// outbound per currently limited client, and prepended user-routing rules.
-	// Done last so the throttle rules outrank every admin rule in the final
-	// routing section.
-	injectThrottling(xrayConfig, s.inboundService.ThrottleLimits())
-
 	return xrayConfig, nil
 }
 
@@ -675,14 +673,20 @@ const mtprotoEgressSocksSettings = `{"auth":"noauth","udp":false}`
 // Xray restart. Mirrors injectPanelEgress.
 func injectMtprotoEgress(cfg *xray.Config, inbound *model.Inbound) {
 	var parsed struct {
-		RouteThroughXray bool   `json:"routeThroughXray"`
-		RouteXrayPort    int    `json:"routeXrayPort"`
-		OutboundTag      string `json:"outboundTag"`
+		RouteThroughXray   bool   `json:"routeThroughXray"`
+		RouteXrayPort      int    `json:"routeXrayPort"`
+		OutboundTag        string `json:"outboundTag"`
+		RateBridgePassword string `json:"rateBridgePassword"`
 	}
 	if err := json.Unmarshal([]byte(inbound.Settings), &parsed); err != nil {
 		return
 	}
-	if !parsed.RouteThroughXray || parsed.RouteXrayPort <= 0 || inbound.Tag == "" {
+	rateViaXray := mtproto.InboundHasRate(inbound)
+	if (!parsed.RouteThroughXray && !rateViaXray) || parsed.RouteXrayPort <= 0 || inbound.Tag == "" {
+		return
+	}
+	if rateViaXray && parsed.RateBridgePassword == "" {
+		logger.Warning("mtproto egress: capped inbound [", inbound.Tag, "] lacks a bridge credential; skipping unsafe bridge")
 		return
 	}
 	tag := inbound.Tag
@@ -691,9 +695,52 @@ func injectMtprotoEgress(cfg *xray.Config, inbound *model.Inbound) {
 			logger.Warning("mtproto egress: inbound tag [", tag, "] already present in generated config, skipping bridge")
 			return
 		}
+		if cfg.InboundConfigs[i].Port == parsed.RouteXrayPort {
+			logger.Warning("mtproto egress: port [", parsed.RouteXrayPort, "] already present in generated config, skipping bridge")
+			return
+		}
 	}
 
-	if parsed.OutboundTag != "" {
+	if rateViaXray && !parsed.RouteThroughXray {
+		// A ceiling alone must preserve mtg's former direct Telegram egress,
+		// regardless of the administrator's other Xray routing rules.
+		var routing map[string]any
+		if len(cfg.RouterConfig) > 0 {
+			if err := json.Unmarshal(cfg.RouterConfig, &routing); err != nil {
+				logger.Warning("mtproto egress: routing section is unparsable, skipping rate bridge:", err)
+				return
+			}
+		}
+		if routing == nil {
+			routing = map[string]any{}
+		}
+		var outbounds []any
+		if len(cfg.OutboundConfigs) > 0 {
+			if err := json.Unmarshal(cfg.OutboundConfigs, &outbounds); err != nil {
+				logger.Warning("mtproto egress: outbounds section is unparsable, skipping rate bridge:", err)
+				return
+			}
+		}
+		directTag := fmt.Sprintf("mtproto-rate-direct-%d", inbound.Id)
+		for routingTargetExists(routing, cfg.OutboundConfigs, directTag) {
+			directTag += "-1"
+		}
+		rules, _ := routing["rules"].([]any)
+		routing["rules"] = append([]any{map[string]any{
+			"type": "field", "inboundTag": []string{tag}, "outboundTag": directTag,
+		}}, rules...)
+		outbounds = append(outbounds, map[string]any{
+			"tag": directTag, "protocol": "freedom", "settings": map[string]any{},
+		})
+		newRouting, routingErr := json.Marshal(routing)
+		newOutbounds, outboundsErr := json.Marshal(outbounds)
+		if routingErr != nil || outboundsErr != nil {
+			logger.Warning("mtproto egress: failed to render direct rate bridge")
+			return
+		}
+		cfg.RouterConfig = json_util.RawMessage(newRouting)
+		cfg.OutboundConfigs = json_util.RawMessage(newOutbounds)
+	} else if parsed.OutboundTag != "" {
 		routing := map[string]any{}
 		if len(cfg.RouterConfig) > 0 {
 			if err := json.Unmarshal(cfg.RouterConfig, &routing); err != nil {
@@ -723,12 +770,23 @@ func injectMtprotoEgress(cfg *xray.Config, inbound *model.Inbound) {
 		}
 		cfg.RouterConfig = json_util.RawMessage(newRouting)
 	}
+	socksSettings := json_util.RawMessage(mtprotoEgressSocksSettings)
+	if rateViaXray {
+		data, err := json.Marshal(map[string]any{
+			"auth": "password", "udp": false,
+			"accounts": []map[string]string{{"user": mtproto.RateBridgeUser(inbound.Id), "pass": parsed.RateBridgePassword}},
+		})
+		if err != nil {
+			return
+		}
+		socksSettings = json_util.RawMessage(data)
+	}
 
 	cfg.InboundConfigs = append(cfg.InboundConfigs, xray.InboundConfig{
 		Listen:   json_util.RawMessage(`"127.0.0.1"`),
 		Port:     parsed.RouteXrayPort,
 		Protocol: "socks",
-		Settings: json_util.RawMessage(mtprotoEgressSocksSettings),
+		Settings: socksSettings,
 		Tag:      tag,
 	})
 }
@@ -1216,6 +1274,10 @@ func (s *XrayService) GetXrayTraffic() ([]*xray.Traffic, []*xray.ClientTraffic, 
 	return traffic, clientTraffic, nil
 }
 
+func (s *XrayService) LastInboundClientTraffic() []*xray.InboundClientTraffic {
+	return s.xrayAPI.LastInboundClientTraffics
+}
+
 // GetOnlineUsers returns connection-based online users (email + source IPs)
 // from the running core's online-stats API. ok=false means the API is not
 // available — xray isn't running or the core predates the online-stats RPCs —
@@ -1391,6 +1453,9 @@ func (s *XrayService) RestartXray(isForce bool) error {
 	xrayConfig, err := s.GetXrayConfig()
 	if err != nil {
 		return err
+	}
+	if err := s.RefreshRatePolicy(); err != nil {
+		return fmt.Errorf("write Xray rate policy: %w", err)
 	}
 
 	process := currentXrayProcess()

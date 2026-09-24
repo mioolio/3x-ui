@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
+	"math/bits"
 	"net"
 	"net/http"
 	"net/url"
@@ -69,6 +71,13 @@ type Instance struct {
 	// the egress obeys the core's routing rules instead of going out directly.
 	RouteThroughXray bool
 	XrayRoutePort    int
+	// RateViaXray authenticates this inbound as a synthetic user on its
+	// loopback SOCKS bridge. Xray then shapes the aggregate MTProto egress.
+	RateViaXray        bool
+	RateBridgePassword string
+	// TrafficMultiplierBps is used by the panel traffic job when charging
+	// per-secret usage; it does not alter mtg's generated configuration.
+	TrafficMultiplierBps int
 }
 
 func (inst Instance) bindTo() string {
@@ -95,6 +104,8 @@ func (inst Instance) structuralFingerprint() string {
 		strconv.Itoa(inst.ThrottleMaxConnections),
 		strconv.FormatBool(inst.RouteThroughXray),
 		strconv.Itoa(inst.XrayRoutePort),
+		strconv.FormatBool(inst.RateViaXray),
+		inst.RateBridgePassword,
 		inst.PublicIPv4,
 		inst.PublicIPv6,
 	}
@@ -118,10 +129,13 @@ func (inst Instance) secretsFingerprint() string {
 // Traffic is a per-client traffic delta scraped from an mtg /stats endpoint. Tag
 // is the owning inbound's tag and Email is the client the bytes belong to.
 type Traffic struct {
-	Tag   string
-	Email string
-	Up    int64
-	Down  int64
+	Tag                string
+	Email              string
+	Up                 int64
+	Down               int64
+	MultiplierBps      int
+	RouteThroughXray   bool
+	RuntimePolicyKnown bool
 }
 
 type clientCounters struct {
@@ -130,19 +144,22 @@ type clientCounters struct {
 }
 
 type managed struct {
-	proc         *Process
-	tag          string
-	structuralFP string
-	secretsFP    string
-	apiPort      int
-	apiToken     string
-	last         map[string]clientCounters
+	proc             *Process
+	tag              string
+	multiplierBps    int
+	routeThroughXray bool
+	structuralFP     string
+	secretsFP        string
+	apiPort          int
+	apiToken         string
+	last             map[string]clientCounters
 }
 
 // Manager owns the set of running mtg processes keyed by inbound id.
 type Manager struct {
-	mu    sync.Mutex
-	procs map[int]*managed
+	mu        sync.Mutex
+	collectMu sync.Mutex
+	procs     map[int]*managed
 	// swept records that the one-time startup cleanup of orphaned mtg
 	// processes (survivors of a previous x-ui run) has already run.
 	swept bool
@@ -183,6 +200,7 @@ func InstanceFromInbound(ib *model.Inbound) (Instance, bool) {
 		ThrottleMaxConnections int    `json:"throttleMaxConnections"`
 		RouteThroughXray       bool   `json:"routeThroughXray"`
 		RouteXrayPort          int    `json:"routeXrayPort"`
+		RateBridgePassword     string `json:"rateBridgePassword"`
 		PublicIPv4             string `json:"publicIpv4"`
 		PublicIPv6             string `json:"publicIpv6"`
 		Clients                []struct {
@@ -197,6 +215,10 @@ func InstanceFromInbound(ib *model.Inbound) (Instance, bool) {
 	if err := json.Unmarshal([]byte(settings), &parsed); err != nil {
 		return Instance{}, false
 	}
+	multiplier := model.EffectiveTrafficMultiplierBps(ib.TrafficMultiplierBps)
+	if multiplier < 100 || multiplier > model.MaxTrafficMultiplierBps {
+		multiplier = model.DefaultTrafficMultiplierBps
+	}
 	secrets := make([]SecretEntry, 0, len(parsed.Clients))
 	for _, c := range parsed.Clients {
 		if !c.Enable || c.Secret == "" || c.Email == "" {
@@ -204,7 +226,9 @@ func InstanceFromInbound(ib *model.Inbound) (Instance, bool) {
 		}
 		entry := SecretEntry{Name: c.Email, Secret: c.Secret, AdTag: usableAdTag(c.AdTag)}
 		if c.TotalGB > 0 {
-			entry.QuotaBytes = c.TotalGB
+			// mtg enforces this quota on physical bytes. Scale its guard to the
+			// billable threshold so a discounted inbound does not stop early.
+			entry.QuotaBytes = mtprotoPhysicalQuota(c.TotalGB, multiplier)
 		}
 		if c.ExpiryTime > 0 {
 			entry.ExpiresUnix = c.ExpiryTime / 1000
@@ -212,6 +236,13 @@ func InstanceFromInbound(ib *model.Inbound) (Instance, bool) {
 		secrets = append(secrets, entry)
 	}
 	if len(secrets) == 0 {
+		return Instance{}, false
+	}
+	rateViaXray := InboundHasRate(ib)
+	if rateViaXray && (parsed.RouteXrayPort <= 0 || parsed.RateBridgePassword == "") {
+		// Serving this inbound without its bridge would silently bypass its
+		// configured ceiling. The save path allocates the port; old records
+		// must be normalized before they can be started safely.
 		return Instance{}, false
 	}
 	return Instance{
@@ -227,11 +258,62 @@ func InstanceFromInbound(ib *model.Inbound) (Instance, bool) {
 		FrontingPort:           parsed.DomainFronting.Port,
 		FrontingProxyProtocol:  parsed.DomainFronting.ProxyProtocol,
 		ThrottleMaxConnections: parsed.ThrottleMaxConnections,
-		RouteThroughXray:       parsed.RouteThroughXray,
+		RouteThroughXray:       parsed.RouteThroughXray || rateViaXray,
 		XrayRoutePort:          parsed.RouteXrayPort,
+		RateViaXray:            rateViaXray,
+		RateBridgePassword:     parsed.RateBridgePassword,
+		TrafficMultiplierBps:   multiplier,
 		PublicIPv4:             strings.TrimSpace(parsed.PublicIPv4),
 		PublicIPv6:             strings.TrimSpace(parsed.PublicIPv6),
 	}, true
+}
+
+// mtprotoPhysicalQuota returns ceil(billableBytes * 10000 / multiplier).
+// A 128-bit intermediate handles any JS-safe multiplier and int64 quota;
+// unrepresentable physical limits saturate instead of wrapping negative.
+func mtprotoPhysicalQuota(billableBytes int64, multiplier int) int64 {
+	if billableBytes <= 0 {
+		return 0
+	}
+	factor := int64(multiplier)
+	if factor < 100 || factor > model.MaxTrafficMultiplierBps {
+		factor = model.DefaultTrafficMultiplierBps
+	}
+	hi, lo := bits.Mul64(uint64(billableBytes), 10_000)
+	if hi >= uint64(factor) {
+		return math.MaxInt64
+	}
+	physical, remainder := bits.Div64(hi, lo, uint64(factor))
+	if physical >= math.MaxInt64 {
+		return math.MaxInt64
+	}
+	if remainder > 0 {
+		physical++
+	}
+	return int64(physical)
+}
+
+// InboundHasRate reports whether any direction has a positive inbound-wide
+// ceiling. Nil direction fields inherit the legacy symmetric ceiling; a
+// present zero explicitly removes that direction's ceiling.
+func InboundHasRate(ib *model.Inbound) bool {
+	if ib == nil || ib.Protocol != model.MTProto {
+		return false
+	}
+	up, down := ib.SpeedLimitKbps, ib.SpeedLimitKbps
+	if ib.SpeedLimitUpKbps != nil {
+		up = *ib.SpeedLimitUpKbps
+	}
+	if ib.SpeedLimitDownKbps != nil {
+		down = *ib.SpeedLimitDownKbps
+	}
+	return up > 0 || down > 0
+}
+
+// The SOCKS credential is a loopback traffic identity, not an external
+// security boundary. It must be identical in the mtg config and Xray bridge.
+func RateBridgeUser(inboundID int) string {
+	return fmt.Sprintf("mtproto-rate-%d@loopback.invalid", inboundID)
 }
 
 // usableAdTag returns a stored advertising tag only when it is well-formed.
@@ -301,6 +383,8 @@ func (m *Manager) ensureLocked(inst Instance) error {
 		switch ensureActionFor(cur.proc.IsRunning(), cur.structuralFP, cur.secretsFP, structFP, secFP) {
 		case ensureNoop:
 			cur.tag = inst.Tag
+			cur.multiplierBps = inst.TrafficMultiplierBps
+			cur.routeThroughXray = inst.RouteThroughXray
 			return nil
 		case ensureReload:
 			if err := writeConfig(configPathForID(inst.Id), inst, cur.apiPort, cur.apiToken); err != nil {
@@ -308,6 +392,8 @@ func (m *Manager) ensureLocked(inst Instance) error {
 			}
 			if applySecrets(cur.apiPort, cur.apiToken, inst) {
 				cur.tag = inst.Tag
+				cur.multiplierBps = inst.TrafficMultiplierBps
+				cur.routeThroughXray = inst.RouteThroughXray
 				cur.secretsFP = secFP
 				logger.Infof("mtproto: applied secret update to inbound %d in place", inst.Id)
 				return nil
@@ -336,13 +422,15 @@ func (m *Manager) ensureLocked(inst Instance) error {
 		return err
 	}
 	m.procs[inst.Id] = &managed{
-		proc:         proc,
-		tag:          inst.Tag,
-		structuralFP: structFP,
-		secretsFP:    secFP,
-		apiPort:      apiPort,
-		apiToken:     apiToken,
-		last:         map[string]clientCounters{},
+		proc:             proc,
+		tag:              inst.Tag,
+		multiplierBps:    inst.TrafficMultiplierBps,
+		routeThroughXray: inst.RouteThroughXray,
+		structuralFP:     structFP,
+		secretsFP:        secFP,
+		apiPort:          apiPort,
+		apiToken:         apiToken,
+		last:             map[string]clientCounters{},
 	}
 	logger.Infof("mtproto: started mtg for inbound %d on %s", inst.Id, inst.bindTo())
 	return nil
@@ -400,12 +488,17 @@ func (m *Manager) StopAll() {
 // per-client byte deltas since the previous scrape, plus the emails of clients
 // with at least one live connection.
 func (m *Manager) CollectTraffic() ([]Traffic, []string) {
+	m.collectMu.Lock()
+	defer m.collectMu.Unlock()
 	type snap struct {
-		id       int
-		apiPort  int
-		apiToken string
-		tag      string
-		last     map[string]clientCounters
+		id               int
+		managed          *managed
+		apiPort          int
+		apiToken         string
+		tag              string
+		multiplierBps    int
+		routeThroughXray bool
+		last             map[string]clientCounters
 	}
 	m.mu.Lock()
 	snaps := make([]snap, 0, len(m.procs))
@@ -415,7 +508,7 @@ func (m *Manager) CollectTraffic() ([]Traffic, []string) {
 		}
 		lastCopy := make(map[string]clientCounters, len(cur.last))
 		maps.Copy(lastCopy, cur.last)
-		snaps = append(snaps, snap{id: id, apiPort: cur.apiPort, apiToken: cur.apiToken, tag: cur.tag, last: lastCopy})
+		snaps = append(snaps, snap{id: id, managed: cur, apiPort: cur.apiPort, apiToken: cur.apiToken, tag: cur.tag, multiplierBps: cur.multiplierBps, routeThroughXray: cur.routeThroughXray, last: lastCopy})
 	}
 	m.mu.Unlock()
 
@@ -447,12 +540,12 @@ func (m *Manager) CollectTraffic() ([]Traffic, []string) {
 				dd = 0
 			}
 			if du > 0 || dd > 0 {
-				out = append(out, Traffic{Tag: s.tag, Email: email, Up: du, Down: dd})
+				out = append(out, Traffic{Tag: s.tag, Email: email, Up: du, Down: dd, MultiplierBps: s.multiplierBps, RouteThroughXray: s.routeThroughXray, RuntimePolicyKnown: true})
 			}
 		}
 
 		m.mu.Lock()
-		if cur, ok := m.procs[s.id]; ok {
+		if cur, ok := m.procs[s.id]; ok && cur == s.managed {
 			cur.last = newLast
 		}
 		m.mu.Unlock()
@@ -564,7 +657,11 @@ func renderConfig(inst Instance, apiPort int, apiToken string) string {
 	// loopback SOCKS bridge the panel injects into the running Xray config. mtg
 	// only supports SOCKS5 upstreams, which is exactly what the bridge exposes.
 	if inst.RouteThroughXray && inst.XrayRoutePort > 0 {
-		fmt.Fprintf(&b, "\n[network]\nproxies = [\"socks5://127.0.0.1:%d\"]\n", inst.XrayRoutePort)
+		proxyURL := fmt.Sprintf("socks5://127.0.0.1:%d", inst.XrayRoutePort)
+		if inst.RateViaXray {
+			proxyURL = (&url.URL{Scheme: "socks5", User: url.UserPassword(RateBridgeUser(inst.Id), inst.RateBridgePassword), Host: fmt.Sprintf("127.0.0.1:%d", inst.XrayRoutePort)}).String()
+		}
+		fmt.Fprintf(&b, "\n[network]\nproxies = [%q]\n", proxyURL)
 	}
 	if inst.ThrottleMaxConnections > 0 {
 		fmt.Fprintf(&b, "\n[throttle]\nmax-connections = %d\n", inst.ThrottleMaxConnections)

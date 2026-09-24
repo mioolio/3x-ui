@@ -65,11 +65,13 @@ func (s *InboundService) AcceptGlobalTraffic(masterGuid string, traffics []*xray
 				continue
 			}
 			rows = append(rows, model.ClientGlobalTraffic{
-				MasterGuid: masterGuid,
-				Email:      email,
-				Up:         t.Up,
-				Down:       t.Down,
-				UpdatedAt:  now,
+				MasterGuid:          masterGuid,
+				Email:               email,
+				Up:                  t.Up,
+				Down:                t.Down,
+				ChargeExtraBytes:    t.ChargeExtraBytes,
+				ChargeDiscountBytes: t.ChargeDiscountBytes,
+				UpdatedAt:           now,
 			})
 		}
 
@@ -77,7 +79,7 @@ func (s *InboundService) AcceptGlobalTraffic(masterGuid string, traffics []*xray
 			for _, batch := range chunkGlobalRows(rows, 200) {
 				if err := tx.Clauses(clause.OnConflict{
 					Columns:   []clause.Column{{Name: "master_guid"}, {Name: "email"}},
-					DoUpdates: clause.AssignmentColumns([]string{"up", "down", "updated_at"}),
+					DoUpdates: clause.AssignmentColumns([]string{"up", "down", "charge_extra_bytes", "charge_discount_bytes", "updated_at"}),
 				}).Create(&batch).Error; err != nil {
 					return err
 				}
@@ -143,6 +145,12 @@ func overlayGlobalTraffic(db *gorm.DB, rows []*xray.ClientTraffic) {
 				}
 				if globals[i].Down > r.Down {
 					r.Down = globals[i].Down
+				}
+				if globals[i].ChargeExtraBytes > r.ChargeExtraBytes {
+					r.ChargeExtraBytes = globals[i].ChargeExtraBytes
+				}
+				if globals[i].ChargeDiscountBytes > r.ChargeDiscountBytes {
+					r.ChargeDiscountBytes = globals[i].ChargeDiscountBytes
 				}
 			}
 		}

@@ -76,6 +76,43 @@ type remoteAPIError struct{ msg string }
 
 func (e *remoteAPIError) Error() string { return "remote: " + e.msg }
 
+// remoteHTTPError preserves the status of an API route failure. Policy sync
+// may safely tolerate a missing route only when the desired policy is the
+// legacy zero/default state; string-matching the diagnostic would also hide
+// unrelated failures that merely contain "404" in their body.
+type remoteHTTPError struct {
+	method  string
+	path    string
+	status  int
+	snippet string
+}
+
+func (e *remoteHTTPError) Error() string {
+	if e.snippet != "" {
+		return fmt.Sprintf("%s %s: HTTP %d: %q", e.method, e.path, e.status, e.snippet)
+	}
+	return fmt.Sprintf("%s %s: HTTP %d", e.method, e.path, e.status)
+}
+
+// IsMissingPolicyEndpoint identifies an HTTP 404 from a node's API. Callers
+// must still verify that the failed operation was a policy-only RPC before
+// treating it as a mixed-version compatibility case.
+func IsMissingPolicyEndpoint(err error) bool {
+	var httpErr *remoteHTTPError
+	if !errors.As(err, &httpErr) || httpErr.status != http.StatusNotFound {
+		return false
+	}
+	path := strings.TrimPrefix(httpErr.path, "/")
+	if !strings.HasPrefix(path, "panel/api/clients/") {
+		return false
+	}
+	return strings.HasSuffix(path, "/rates") ||
+		strings.HasSuffix(path, "/directionalRates") ||
+		strings.HasSuffix(path, "/windowQuotas") ||
+		strings.HasSuffix(path, "/linkPolicies") ||
+		strings.Contains(path, "/windowStatus/")
+}
+
 type Remote struct {
 	node *model.Node
 
@@ -263,12 +300,9 @@ func (r *Remote) do(ctx context.Context, method, path string, body any) (*envelo
 	// to buffer a large body just to return an HTTP error.
 	if resp.StatusCode != http.StatusOK {
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, errBodyDiagBytes))
-		if msg := bytes.TrimSpace(snippet); len(msg) > 0 {
-			// %q quotes/escapes the untrusted node body so control characters or
-			// newlines in it can't garble or inject into the error/log output.
-			return nil, fmt.Errorf("%s %s: HTTP %d: %q", method, path, resp.StatusCode, msg)
-		}
-		return nil, fmt.Errorf("%s %s: HTTP %d", method, path, resp.StatusCode)
+		// Error() quotes/escapes the untrusted node body so control characters
+		// or newlines cannot garble or inject into the error/log output.
+		return nil, &remoteHTTPError{method: method, path: path, status: resp.StatusCode, snippet: string(bytes.TrimSpace(snippet))}
 	}
 
 	// Fast-fail on an honestly-declared oversize body; the LimitReader below is
@@ -581,6 +615,66 @@ func (r *Remote) AddClient(ctx context.Context, ib *model.Inbound, client model.
 	return nil
 }
 
+func (r *Remote) SetClientRate(ctx context.Context, ib *model.Inbound, email string, kbps int64) error {
+	id, err := r.resolveRemoteID(ctx, ib.Tag)
+	if err != nil {
+		return err
+	}
+	_, err = r.do(ctx, http.MethodPost, "panel/api/clients/"+url.PathEscape(email)+"/rates", map[string]any{
+		"rates": map[int]int64{id: kbps},
+	})
+	return err
+}
+
+func (r *Remote) SetClientDirectionalRate(ctx context.Context, ib *model.Inbound, email string, upKbps, downKbps int64) error {
+	id, err := r.resolveRemoteID(ctx, ib.Tag)
+	if err != nil {
+		return err
+	}
+	_, err = r.do(ctx, http.MethodPost, "panel/api/clients/"+url.PathEscape(email)+"/directionalRates", map[string]any{
+		"rates": map[int]map[string]int64{id: {"upKbps": upKbps, "downKbps": downKbps}},
+	})
+	return err
+}
+
+func (r *Remote) SyncInboundLinkPolicies(ctx context.Context, ib *model.Inbound, policies []model.ClientLinkPolicy) error {
+	id, err := r.resolveRemoteID(ctx, ib.Tag)
+	if err != nil {
+		return err
+	}
+	_, err = r.do(ctx, http.MethodPost, "panel/api/clients/inbound/"+strconv.Itoa(id)+"/linkPolicies", map[string]any{
+		"policies": policies,
+	})
+	return err
+}
+
+func (r *Remote) SetClientWindowQuota(ctx context.Context, ib *model.Inbound, email string, quotaBytes int64, hours int, mode, action string, upKbps, downKbps int64, multiplierBps int) error {
+	id, err := r.resolveRemoteID(ctx, ib.Tag)
+	if err != nil {
+		return err
+	}
+	_, err = r.do(ctx, http.MethodPost, "panel/api/clients/"+url.PathEscape(email)+"/windowQuotas", map[string]any{
+		"quotas": map[int]map[string]any{id: {
+			"quotaBytes": quotaBytes, "hours": hours, "mode": mode,
+			"windowExhaustAction": action, "windowExhaustUpKbps": upKbps,
+			"windowExhaustDownKbps": downKbps, "windowOverageMultiplierBps": multiplierBps,
+		}},
+	})
+	return err
+}
+
+func (r *Remote) GetClientWindowStatus(ctx context.Context, ib *model.Inbound, email string) (json.RawMessage, error) {
+	id, err := r.resolveRemoteID(ctx, ib.Tag)
+	if err != nil {
+		return nil, err
+	}
+	env, err := r.do(ctx, http.MethodGet, "panel/api/clients/"+url.PathEscape(email)+"/windowStatus/"+strconv.Itoa(id), nil)
+	if err != nil {
+		return nil, err
+	}
+	return env.Obj, nil
+}
+
 func (r *Remote) DeleteUser(ctx context.Context, ib *model.Inbound, email string) error {
 	if email == "" {
 		return nil
@@ -832,11 +926,24 @@ func wireInbound(ib *model.Inbound, remoteNodeID int) url.Values {
 	v.Set("shareAddrStrategy", shareAddrStrategy)
 	v.Set("shareAddr", ib.ShareAddr)
 	v.Set("disableFlow", strconv.FormatBool(ib.DisableFlow))
+	v.Set("speedLimitKbps", strconv.FormatInt(ib.SpeedLimitKbps, 10))
+	upKbps, downKbps := ib.SpeedLimitKbps, ib.SpeedLimitKbps
+	if ib.SpeedLimitUpKbps != nil {
+		upKbps = *ib.SpeedLimitUpKbps
+	}
+	if ib.SpeedLimitDownKbps != nil {
+		downKbps = *ib.SpeedLimitDownKbps
+	}
+	v.Set("speedLimitUpKbps", strconv.FormatInt(upKbps, 10))
+	v.Set("speedLimitDownKbps", strconv.FormatInt(downKbps, 10))
 	if ib.TrafficReset != "" {
 		v.Set("trafficReset", ib.TrafficReset)
 	}
 	if ib.TrafficResetDay > 0 {
 		v.Set("trafficResetDay", strconv.Itoa(ib.TrafficResetDay))
+	}
+	if ib.TrafficResetInterval > 0 {
+		v.Set("trafficResetInterval", strconv.Itoa(ib.TrafficResetInterval))
 	}
 	return v
 }

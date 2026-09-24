@@ -23,7 +23,7 @@ import (
 
 // A client with a renewal day set auto-renews too, so it must not read as
 // depleted — otherwise the operator's purge deletes it between cycles (#6239).
-const depletedClientsClause = "reset = 0 and reset_day = 0 and ((total > 0 and up + down >= total) or (expiry_time > 0 and expiry_time <= ?))"
+const depletedClientsClause = "reset = 0 and reset_day = 0 and ((total > 0 and up + down + charge_extra_bytes - charge_discount_bytes >= total) or (expiry_time > 0 and expiry_time <= ?))"
 
 func (s *InboundService) AddTraffic(inboundTraffics []*xray.Traffic, clientTraffics []*xray.ClientTraffic) (needRestart bool, clientsDisabled bool, err error) {
 	var disabledNodeIDs []int
@@ -49,6 +49,9 @@ func (s *InboundService) addTrafficLocked(inboundTraffics []*xray.Traffic, clien
 	// Commit durable traffic before best-effort lifecycle maintenance so helper
 	// failures cannot discard usage already reported by Xray.
 	if err := db.Transaction(func(tx *gorm.DB) error {
+		if err := captureGraceBaselines(tx, time.Now()); err != nil {
+			return err
+		}
 		if err := s.addInboundTraffic(tx, inboundTraffics); err != nil {
 			return err
 		}
@@ -71,10 +74,6 @@ func (s *InboundService) addTrafficLocked(inboundTraffics []*xray.Traffic, clien
 		}
 		if count > 0 {
 			logger.Debugf("%v clients renewed", count)
-		}
-
-		if err := s.enforceQuotaWindows(tx, batch, windowDeltas(clientTraffics)); err != nil {
-			return fmt.Errorf("enforce quota windows: %w", err)
 		}
 
 		needRestart1, count, nodeIDs, err := s.disableInvalidClients(tx, batch)
@@ -118,12 +117,10 @@ func (s *InboundService) addInboundTraffic(tx *gorm.DB, traffics []*xray.Traffic
 
 	for _, traffic := range traffics {
 		if traffic.IsInbound {
-			err = tx.Model(model.Inbound{}).Where("tag = ? AND node_id IS NULL", traffic.Tag).
+			err = tx.Model(&model.Inbound{}).Where("tag = ? AND node_id IS NULL", traffic.Tag).
 				Updates(map[string]any{
-					"up":          gorm.Expr(database.ClampedAddExpr("up"), traffic.Up),
-					"down":        gorm.Expr(database.ClampedAddExpr("down"), traffic.Down),
-					"history_up":  gorm.Expr(database.ClampedAddExpr("history_up"), traffic.Up),
-					"history_down": gorm.Expr(database.ClampedAddExpr("history_down"), traffic.Down),
+					"up":   gorm.Expr(database.ClampedAddExpr("up"), traffic.Up),
+					"down": gorm.Expr(database.ClampedAddExpr("down"), traffic.Down),
 				}).Error
 			if err != nil {
 				return err
@@ -184,21 +181,21 @@ func (s *InboundService) addClientTraffic(tx *gorm.DB, traffics []*xray.ClientTr
 	// subsequent lock acquisition, so concurrent writers cannot deadlock.
 	for _, ct := range dbClientTraffics {
 		t, ok := trafficByEmail[ct.Email]
-		if !ok || (t.Up == 0 && t.Down == 0) {
+		if !ok || (t.Up == 0 && t.Down == 0 && t.ChargeExtraDelta == 0 && t.ChargeDiscountDelta == 0) {
 			continue
 		}
 		if err = tx.Exec(
 			fmt.Sprintf(
-				`UPDATE client_traffics SET up = %s, down = %s, history_up = %s, history_down = %s, last_online = %s WHERE email = ?`,
+				`UPDATE client_traffics SET up = %s, down = %s, charge_extra_bytes = %s, charge_discount_bytes = %s, last_online = %s WHERE email = ?`,
 				database.ClampedAddExpr("up"),
 				database.ClampedAddExpr("down"),
-				database.ClampedAddExpr("history_up"),
-				database.ClampedAddExpr("history_down"),
+				database.ClampedAddExpr("charge_extra_bytes"),
+				database.ClampedAddExpr("charge_discount_bytes"),
 				database.GreatestExpr("last_online", "?"),
 			),
-			t.Up, t.Down, t.Up, t.Down, now, ct.Email,
+			t.Up, t.Down, t.ChargeExtraDelta, t.ChargeDiscountDelta, now, ct.Email,
 		).Error; err != nil {
-			logger.Warning("AddClientTraffic update data ", err)
+			return fmt.Errorf("update client traffic for %s: %w", ct.Email, err)
 		}
 	}
 
@@ -212,7 +209,7 @@ func (s *InboundService) addClientTraffic(tx *gorm.DB, traffics []*xray.ClientTr
 			`UPDATE client_traffics SET expiry_time = ? WHERE email = ? AND expiry_time < 0`,
 			convertedExpiryByEmail[email], email,
 		).Error; err != nil {
-			logger.Warning("AddClientTraffic update expiry_time ", err)
+			return fmt.Errorf("activate client expiry for %s: %w", email, err)
 		}
 	}
 
@@ -500,7 +497,11 @@ func (s *InboundService) autoRenewClients(tx *gorm.DB, mutationBatch *trafficMut
 			if renewals > 0 {
 				traffic.Down = 0
 				traffic.Up = 0
-				traffic.ThrottledSince = 0
+				traffic.ChargeExtraBytes = 0
+				traffic.ChargeDiscountBytes = 0
+				traffic.GraceBaselineBytes = 0
+				traffic.GraceBaselineExpiry = 0
+				traffic.QuotaEpoch = time.Now().UnixNano()
 				renewedEmails = append(renewedEmails, email)
 			}
 			if !trafficWasEnabled[email] {
@@ -666,10 +667,9 @@ func (s *InboundService) ResetClientTrafficByEmail(clientEmail string) error {
 			}
 			if err := tx.Model(xray.ClientTraffic{}).
 				Where("email = ?", clientEmail).
-				Updates(map[string]any{"enable": true, "up": 0, "down": 0}).Error; err != nil {
-				return err
-			}
-			if err := clearQuotaWindowState(tx, clientEmail); err != nil {
+				Updates(map[string]any{"enable": true, "up": 0, "down": 0,
+					"charge_extra_bytes": 0, "charge_discount_bytes": 0, "grace_baseline_bytes": 0,
+					"grace_baseline_expiry": 0, "quota_epoch": time.Now().UnixNano()}).Error; err != nil {
 				return err
 			}
 			return tx.Where("email = ?", clientEmail).Delete(&model.NodeClientTraffic{}).Error
@@ -695,12 +695,14 @@ func (s *InboundService) ResetClientTraffic(id int, clientEmail string) (needRes
 			// node still serving after being marked offline must get it now.
 			if rt, rterr := s.runtimeFor(resetInbound); rterr != nil {
 				logger.Warning("ResetClientTraffic: runtime lookup failed:", rterr)
+				return needRestart, fmt.Errorf("本地流量已重置，但节点 %d 未完成重置，请重试: %w", *resetInbound.NodeID, rterr)
 			} else {
 				ctx, cancel := nodePushContext()
 				e := rt.ResetClientTraffic(ctx, resetInbound, clientEmail)
 				cancel()
 				if e != nil {
 					logger.Warning("ResetClientTraffic: remote propagation to", rt.Name(), "failed:", e)
+					return needRestart, fmt.Errorf("本地流量已重置，但节点 %s 未完成重置，请重试: %w", rt.Name(), e)
 				}
 			}
 		}
@@ -760,14 +762,12 @@ func (s *InboundService) resetClientTrafficLocked(id int, clientEmail string) (b
 
 	traffic.Up = 0
 	traffic.Down = 0
+	traffic.ChargeExtraBytes = 0
+	traffic.ChargeDiscountBytes = 0
+	traffic.GraceBaselineBytes = 0
+	traffic.GraceBaselineExpiry = 0
+	traffic.QuotaEpoch = time.Now().UnixNano()
 	traffic.Enable = true
-	traffic.WindowUsed = 0
-	traffic.WindowStarted = 0
-	traffic.WindowDisabled = false
-	traffic.PeriodUsed = 0
-	traffic.PeriodStarted = 0
-	traffic.PeriodDisabled = false
-	traffic.ThrottledSince = 0
 
 	db := database.GetDB()
 	now := time.Now().UnixMilli()
@@ -913,6 +913,10 @@ func (s *InboundService) DelDepletedClients(id int) (err error) {
 		if len(depletedRows) == 0 {
 			return nil
 		}
+		depletedRows, err = filterHardStoppedClients(tx, depletedRows, now)
+		if err != nil || len(depletedRows) == 0 {
+			return err
+		}
 
 		depletedEmails := make(map[string]struct{}, len(depletedRows))
 		for _, r := range depletedRows {
@@ -1005,7 +1009,11 @@ func (s *InboundService) DelDepletedClients(id int) (err error) {
 		// Drop now-orphaned rows. With id >= 0, a row is safe to drop only when
 		// no out-of-scope inbound still references the email.
 		if id < 0 {
-			return tx.Where(depletedClause, now).Delete(xray.ClientTraffic{}).Error
+			emails := make([]string, 0, len(depletedEmails))
+			for email := range depletedEmails {
+				emails = append(emails, email)
+			}
+			return tx.Where("LOWER(email) IN ?", emails).Delete(xray.ClientTraffic{}).Error
 		}
 		emails := make([]string, 0, len(depletedEmails))
 		for e := range depletedEmails {

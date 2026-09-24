@@ -1,13 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, Card, ConfigProvider, Layout, Tabs, message } from 'antd';
+import { Alert, Card, ConfigProvider, Layout, Tabs, Tag, message } from 'antd';
 import type { TabsProps } from 'antd';
 import {
   AppstoreOutlined,
   ClockCircleOutlined,
   CustomerServiceOutlined,
   LinkOutlined,
-  PieChartOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons';
 
@@ -19,9 +18,15 @@ import SubConfigsTab from './SubConfigsTab';
 import SubHeader from './SubHeader';
 import SubHero from './SubHero';
 import SubLinksTab from './SubLinksTab';
-import SubQuotaTab from './SubQuotaTab';
-import { buildSubApps, daysUntil, detectPlatform, resolveSubStatus } from './subPageModel';
-import type { QuotaInfo } from './SubQuotaTab';
+import SubWindowCard from './SubWindowCard';
+import {
+  buildSubApps,
+  daysUntil,
+  detectPlatform,
+  hasCrossedPageBoundary,
+  resolvePublicSubStatus,
+  resolveSubStatus,
+} from './subPageModel';
 import './SubPage.css';
 
 const subData = window.__SUB_PAGE_DATA__ || {};
@@ -35,49 +40,24 @@ const subSupportUrl = subData.subSupportUrl || '';
 const updateHours = Number(subData.subUpdates || 0);
 const announce = subData.announce || '';
 const links: string[] = Array.isArray(subData.links) ? subData.links : [];
-const linkEmails: string[] = Array.isArray(subData.emails) ? subData.emails : [];
-const totalByte = Number(subData.totalByte || 0);
-const usedByte =
-  Number(subData.usedByte || 0) ||
-  Number(subData.downloadByte || 0) + Number(subData.uploadByte || 0);
-const expireMs = Number(subData.expire || 0) * 1000;
-const clientEmail = [...new Set(linkEmails.filter(Boolean))].join(', ');
-const loadedAt = Date.now();
-
-const heroData = {
-  status: resolveSubStatus({ enabled: !!subData.enabled, usedByte, totalByte, expireMs }, loadedAt),
-  daysLeft: daysUntil(expireMs, loadedAt),
-  usedByte,
-  totalByte,
-  historyByte: Number(subData.historyByte || 0),
-  expireMs,
-  lastOnlineMs: Number(subData.lastOnline || 0),
-  download: subData.download || '0',
-  upload: subData.upload || '0',
-  used: subData.used || '0',
-  total: subData.total || '∞',
-  remained: subData.remained || '',
-  datepicker: subData.datepicker || 'gregorian',
-};
 
 const apps = buildSubApps({ subUrl, sId, subTitle });
 const initialPlatform = detectPlatform(navigator.userAgent);
 const RTL_LANGUAGES = new Set(['fa-IR', 'ar-EG']);
 
-// The sub page runs its own violet accent, so every antd control on it picks the
-// hue up instead of the panel blue useTheme pins. Mirrored in SubPage.css.
+// The share page uses a restrained accent independent from the admin panel.
 const ACCENT = {
   light: {
-    primary: '#7c3aed',
-    hover: '#8b5cf6',
-    active: '#6d28d9',
-    rail: 'rgba(124, 58, 237, 0.16)',
+    primary: '#126a72',
+    hover: '#167d86',
+    active: '#0d5058',
+    rail: '#e2e9eb',
   },
   dark: {
-    primary: '#a78bfa',
-    hover: '#c4b5fd',
-    active: '#8b5cf6',
-    rail: 'rgba(167, 139, 250, 0.18)',
+    primary: '#70c7c3',
+    hover: '#8cd9d5',
+    active: '#4caaa8',
+    rail: '#314148',
   },
 };
 
@@ -89,6 +69,130 @@ export default function SubPage() {
     setMessageInstance(messageApi);
   }, [messageApi]);
   const [lang, setLang] = useState<string>(() => LanguageManager.getLanguage('subscription'));
+  const [now, setNow] = useState(() => Date.now());
+  const [snapshotAt, setSnapshotAt] = useState(() => Date.now());
+  const [liveData, setLiveData] = useState<SubPageData>(subData);
+  const infoPending = useRef(false);
+
+  const windowQuota = liveData.windowQuota;
+  const accountWindows = useMemo(
+    () =>
+      Array.isArray(liveData.windowQuotas)
+        ? liveData.windowQuotas
+        : windowQuota
+          ? [{ accountIndex: 1, window: windowQuota }]
+          : [],
+    [liveData.windowQuotas, windowQuota],
+  );
+  const nodes = useMemo(
+    () => (Array.isArray(liveData.nodes) ? liveData.nodes : []),
+    [liveData.nodes],
+  );
+  const accountStates = useMemo(
+    () => (Array.isArray(liveData.accountStates) ? liveData.accountStates : []),
+    [liveData.accountStates],
+  );
+  const publicState = liveData.publicState;
+  const totalByte = Number(liveData.totalByte || 0);
+  const usedByte =
+    liveData.usedByte == null
+      ? Number(liveData.downloadByte || 0) + Number(liveData.uploadByte || 0)
+      : Number(liveData.usedByte);
+  const expireMs = Number(liveData.expire || 0) * 1000;
+  const showAccountNames = accountStates.length > 1 || accountWindows.length > 1;
+
+  const refreshInfo = useCallback(async () => {
+    if (infoPending.current) return;
+    infoPending.current = true;
+    try {
+      const infoUrl = new URL(window.location.href);
+      infoUrl.searchParams.delete('html');
+      infoUrl.searchParams.delete('view');
+      infoUrl.searchParams.set('format', 'info');
+      const response = await fetch(infoUrl, { cache: 'no-store', credentials: 'same-origin' });
+      if (response.status === 404) {
+        setLiveData((previous) => ({ ...previous, enabled: false, publicState: 'blocked' }));
+        return;
+      }
+      if (!response.ok) return;
+      const info = (await response.json()) as SubPageData;
+      if (info.sId !== sId) return;
+      // The public info endpoint excludes credential links; keep those from
+      // the original page while refreshing only subscriber-facing status.
+      setLiveData((previous) => ({ ...previous, ...info }));
+    } catch {
+      // The next poll retries after a transient network failure.
+    } finally {
+      infoPending.current = false;
+      setSnapshotAt(Date.now());
+      setNow(Date.now());
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const pageWindows = [
+      ...accountWindows.map((entry) => entry.window),
+      ...nodes.flatMap((node) => (node.window ? [node.window] : [])),
+    ];
+    const boundaries = [
+      ...(publicState === 'active' && expireMs > snapshotAt ? [expireMs] : []),
+      ...pageWindows.map((entry) => entry.resetAt).filter((resetAt) => resetAt > snapshotAt),
+      ...accountStates.map((entry) => entry.expiryMs).filter((expiryMs) => expiryMs > snapshotAt),
+    ];
+    if (boundaries.length === 0) return;
+    const nextBoundary = Math.min(...boundaries);
+    const delay = Math.max(0, Math.min(nextBoundary - Date.now() + 50, 2_147_483_647));
+    const timer = window.setTimeout(() => {
+      const current = Date.now();
+      setNow(current);
+      if (
+        hasCrossedPageBoundary(
+          snapshotAt,
+          current,
+          expireMs,
+          publicState,
+          pageWindows,
+          accountStates.map((entry) => entry.expiryMs),
+        )
+      ) {
+        void refreshInfo();
+      }
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [accountStates, accountWindows, expireMs, nodes, publicState, refreshInfo, snapshotAt]);
+
+  useEffect(() => {
+    // Refresh the public snapshot while the page stays open. This catches a
+    // grace period ending without exposing its configured duration, and keeps
+    // node-window usage current to the minute.
+    const timer = window.setInterval(() => void refreshInfo(), 60_000);
+    return () => window.clearInterval(timer);
+  }, [refreshInfo]);
+
+  const baseStatus = resolveSubStatus(
+    { enabled: !!liveData.enabled, usedByte, totalByte, expireMs },
+    now,
+  );
+  const displayStatus = resolvePublicSubStatus(baseStatus, publicState);
+  const heroData = {
+    status: displayStatus,
+    daysLeft: daysUntil(expireMs, now),
+    usedByte,
+    totalByte,
+    expireMs,
+    lastOnlineMs: Number(liveData.lastOnline || 0),
+    download: liveData.download || '0',
+    upload: liveData.upload || '0',
+    used: liveData.used || '0',
+    total: liveData.total || '∞',
+    remained: liveData.remained || '',
+    datepicker: liveData.datepicker || 'gregorian',
+  };
 
   const onLangChange = useCallback((next: string) => {
     setLang(next);
@@ -133,14 +237,6 @@ export default function SubPage() {
         children: <SubAppsTab apps={apps} initialPlatform={initialPlatform} onOpen={open} />,
       });
     }
-    items.push({
-      key: 'quota',
-      icon: <PieChartOutlined />,
-      label: t('subscription.tabQuota'),
-      children: (
-        <SubQuotaTab quota={(subData.quota as QuotaInfo) || {}} totalLabel={subData.total || '∞'} />
-      ),
-    });
     if (links.length > 0) {
       items.push({
         key: 'configs',
@@ -151,11 +247,11 @@ export default function SubPage() {
             <span className="sub-tab-count">{links.length}</span>
           </>
         ),
-        children: <SubConfigsTab links={links} onCopy={copy} />,
+        children: <SubConfigsTab links={links} nodes={nodes} lang={lang} now={now} onCopy={copy} />,
       });
     }
     return items;
-  }, [t, copy, open]);
+  }, [t, copy, open, lang, now, nodes]);
 
   const direction = RTL_LANGUAGES.has(lang) ? 'rtl' : 'ltr';
   const pageClass = ['subscription-page', isDark && 'is-dark', isUltra && 'is-ultra']
@@ -189,20 +285,68 @@ export default function SubPage() {
     <ConfigProvider theme={themeConfig} direction={direction}>
       {messageContextHolder}
       <Layout className={pageClass} dir={direction}>
-        <div className="sub-aurora" aria-hidden="true">
-          <span className="sub-aurora-grid" />
-        </div>
         <Layout.Content className="sub-content">
           <Card className="sub-card">
-            <SubHeader
-              title={subTitle}
-              sId={sId}
-              email={clientEmail}
-              lang={lang}
-              onLangChange={onLangChange}
-            />
+            <SubHeader title={subTitle} lang={lang} onLangChange={onLangChange} />
             {announce && <Alert type="info" showIcon title={announce} className="sub-announce" />}
             <SubHero {...heroData} lang={lang} />
+            {accountStates.length > 1 && (
+              <section
+                className="sub-account-states"
+                aria-label={t('subscription.accountAvailability')}
+              >
+                <div className="sub-section-heading">
+                  <h2>{t('subscription.accountAvailability')}</h2>
+                </div>
+                <div className="sub-account-state-list">
+                  {accountStates.map((account) => {
+                    const checking =
+                      account.state === 'active' && account.expiryMs > 0 && now >= account.expiryMs;
+                    const label = checking
+                      ? t('subscription.updatingStatus')
+                      : account.state === 'grace'
+                        ? t('subscription.availableAfterExpiry')
+                        : account.state === 'blocked'
+                          ? t('subscription.unavailable')
+                          : t('subscription.active');
+                    return (
+                      <div className="sub-account-state" key={account.accountIndex}>
+                        <span>
+                          {t('subscription.accountNumber', { number: account.accountIndex })}
+                        </span>
+                        <Tag
+                          color={checking ? 'gold' : account.state === 'blocked' ? 'red' : 'green'}
+                        >
+                          {label}
+                        </Tag>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+            {accountWindows.some((entry) => entry.window.quotaBytes > 0) && (
+              <section className="sub-window-quotas" aria-label={t('subscription.windowQuota')}>
+                <div className="sub-section-heading">
+                  <h2>{t('subscription.windowQuota')}</h2>
+                  <span>{t('subscription.windowQuotaHint')}</span>
+                </div>
+                <div className="sub-account-windows">
+                  {accountWindows
+                    .filter((entry) => entry.window.quotaBytes > 0)
+                    .map((entry) => (
+                      <div className="sub-account-window" key={entry.accountIndex}>
+                        {showAccountNames && (
+                          <span className="sub-account-window-name">
+                            {t('subscription.accountNumber', { number: entry.accountIndex })}
+                          </span>
+                        )}
+                        <SubWindowCard window={entry.window} lang={lang} now={now} />
+                      </div>
+                    ))}
+                </div>
+              </section>
+            )}
             {tabs.length > 0 && <Tabs className="sub-tabs" tabBarGutter={24} items={tabs} />}
             {(updateHours > 0 || subSupportUrl) && (
               <footer className="sub-footer">

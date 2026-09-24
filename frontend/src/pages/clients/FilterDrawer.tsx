@@ -19,7 +19,7 @@ import type { Dayjs } from 'dayjs';
 
 import type { InboundOption } from '@/hooks/useClients';
 import type { NodeRecord } from '@/schemas/node';
-import { formatInboundLabel } from '@/lib/inbounds/label';
+import { formatInboundOptionLabel } from '@/lib/inbounds/label';
 import { emptyFilters, type ClientFilters } from './filters';
 
 interface FilterDrawerProps {
@@ -55,7 +55,7 @@ export default function FilterDrawer({
     () =>
       inbounds.map((ib) => ({
         value: ib.id,
-        label: formatInboundLabel(ib.tag, ib.remark),
+        label: formatInboundOptionLabel(ib),
       })),
     [inbounds],
   );

@@ -1518,6 +1518,13 @@ func (s *ClientService) DelDepleted(inboundSvc *InboundService) (int, bool, erro
 	if len(rows) == 0 {
 		return 0, false, nil
 	}
+	rows, err := filterHardStoppedClients(db, rows, now)
+	if err != nil {
+		return 0, false, err
+	}
+	if len(rows) == 0 {
+		return 0, false, nil
+	}
 
 	seen := make(map[string]struct{}, len(rows))
 	emails := make([]string, 0, len(rows))

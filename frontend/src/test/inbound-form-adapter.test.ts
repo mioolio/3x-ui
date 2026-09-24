@@ -9,6 +9,11 @@ import {
 import { DBInbound, type DBInboundInit } from '@/models/dbinbound';
 import { InboundDbFieldsSchema, InboundFormSchema } from '@/schemas/forms/inbound-form';
 import { normalizeXhttpForWire } from '@/lib/xray/stream-wire-normalize';
+import {
+  MAX_TRAFFIC_MULTIPLIER_BPS,
+  trafficMultiplierBpsToInput,
+  trafficMultiplierInputToBps,
+} from '@/lib/xray/traffic-multiplier';
 import { SockoptStreamSettingsSchema } from '@/schemas/protocols/stream/sockopt';
 
 // Round-trip: raw DB row → InboundFormValues → wire payload, asserting
@@ -118,6 +123,52 @@ describe('rawInboundToFormValues', () => {
     const values = rawInboundToFormValues(vlessRow);
     const result = InboundFormSchema.safeParse(values);
     expect(result.success).toBe(true);
+  });
+
+  it('migrates a legacy shared limit but preserves an explicit unlimited direction', () => {
+    const legacy = rawInboundToFormValues({ ...vlessRow, speedLimitKbps: 800 });
+    expect(legacy.speedLimitUpKbps).toBe(800);
+    expect(legacy.speedLimitDownKbps).toBe(800);
+
+    const directional = rawInboundToFormValues({
+      ...vlessRow,
+      speedLimitKbps: 800,
+      speedLimitUpKbps: 0,
+      speedLimitDownKbps: 1200,
+    });
+    expect(directional.speedLimitUpKbps).toBe(0);
+    expect(directional.speedLimitDownKbps).toBe(1200);
+    expect(formValuesToWirePayload(directional)).toMatchObject({
+      speedLimitKbps: 0,
+      speedLimitUpKbps: 0,
+      speedLimitDownKbps: 1200,
+    });
+  });
+
+  it('defaults the inbound multiplier to 1× and preserves valid boundary values on save', () => {
+    expect(rawInboundToFormValues(vlessRow).trafficMultiplierBps).toBe(10000);
+    expect(
+      rawInboundToFormValues({ ...vlessRow, trafficMultiplierBps: 0 }).trafficMultiplierBps,
+    ).toBe(10000);
+    for (const multiplier of [100, 10000, 20000, 10000000, MAX_TRAFFIC_MULTIPLIER_BPS]) {
+      const values = rawInboundToFormValues({ ...vlessRow, trafficMultiplierBps: multiplier });
+      expect(InboundFormSchema.safeParse(values).success).toBe(true);
+      expect(formValuesToWirePayload(values).trafficMultiplierBps).toBe(multiplier);
+    }
+    expect(InboundDbFieldsSchema.shape.trafficMultiplierBps.safeParse(99).success).toBe(false);
+    expect(
+      InboundDbFieldsSchema.shape.trafficMultiplierBps.safeParse(MAX_TRAFFIC_MULTIPLIER_BPS + 1)
+        .success,
+    ).toBe(false);
+    expect(trafficMultiplierBpsToInput(100)).toBe('0.01');
+    expect(trafficMultiplierBpsToInput(MAX_TRAFFIC_MULTIPLIER_BPS)).toBe('900719925474.0991');
+    expect(trafficMultiplierInputToBps('900719925474.0991')).toBe(MAX_TRAFFIC_MULTIPLIER_BPS);
+    expect(
+      InboundDbFieldsSchema.shape.trafficMultiplierBps.safeParse(
+        trafficMultiplierInputToBps('900719925474.0992'),
+      ).success,
+    ).toBe(false);
+    expect(Number.isNaN(trafficMultiplierInputToBps('1.00001'))).toBe(true);
   });
 });
 

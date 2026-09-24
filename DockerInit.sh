@@ -32,11 +32,8 @@ if [ -z "$MTG_MULTI_VER" ]; then
     exit 1
 fi
 mkdir -p build/bin
+CGO_ENABLED=0 go build -trimpath -ldflags '-w -s' -o "build/bin/xray-linux-${FNAME}" github.com/xtls/xray-core/main
 cd build/bin
-curl -sfLRO "https://github.com/XTLS/Xray-core/releases/download/v26.9.9/Xray-linux-${ARCH}.zip"
-unzip "Xray-linux-${ARCH}.zip"
-rm -f "Xray-linux-${ARCH}.zip" geoip.dat geosite.dat
-mv xray "xray-linux-${FNAME}"
 # mtg-multi (MTProto sidecar) ships prebuilt release binaries for every target
 # we package, so download and unpack the matching one instead of compiling.
 case $FNAME in

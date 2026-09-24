@@ -55,6 +55,10 @@ func (a *ClientController) initRouter(g *gin.RouterGroup) {
 	g.GET("/get/:email", a.get)
 	g.GET("/get/tgId/:tgId", a.getByTgId)
 	g.GET("/traffic/:email", a.getTrafficByEmail)
+	g.GET("/:email/rates", a.getInboundRates)
+	g.GET("/:email/directionalRates", a.getInboundDirectionalRates)
+	g.GET("/:email/windowQuotas", a.getInboundWindowQuotas)
+	g.GET("/:email/windowStatus/:inboundId", a.getInboundWindowStatus)
 	g.GET("/subLinks/:subId", a.getSubLinks)
 	g.GET("/links/:email", a.getClientLinks)
 	g.POST("/happLink/:id", a.generateHappLink)
@@ -65,6 +69,10 @@ func (a *ClientController) initRouter(g *gin.RouterGroup) {
 	g.POST("/:email/attach", a.attach)
 	g.POST("/:email/detach", a.detach)
 	g.POST("/:email/externalLinks", a.setExternalLinks)
+	g.POST("/:email/rates", a.setInboundRates)
+	g.POST("/:email/directionalRates", a.setInboundDirectionalRates)
+	g.POST("/inbound/:id/linkPolicies", a.setInboundLinkPolicies)
+	g.POST("/:email/windowQuotas", a.setInboundWindowQuotas)
 	g.GET("/export", a.export)
 	g.POST("/import", a.importClients)
 	g.POST("/delOrphans", a.delOrphans)
@@ -265,6 +273,128 @@ type attachDetachBody struct {
 
 type externalLinksBody struct {
 	ExternalLinks []service.ExternalLinkInput `json:"externalLinks"`
+}
+
+func (a *ClientController) getInboundRates(c *gin.Context) {
+	rates, err := a.clientService.GetInboundRates(c.Param("email"))
+	jsonObj(c, rates, err)
+}
+
+func (a *ClientController) getInboundDirectionalRates(c *gin.Context) {
+	rates, err := a.clientService.GetInboundDirectionalRates(c.Param("email"))
+	jsonObj(c, rates, err)
+}
+
+func (a *ClientController) setInboundDirectionalRates(c *gin.Context) {
+	var body struct {
+		Rates map[int]service.InboundDirectionalRate `json:"rates"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+	if err := a.clientService.SetInboundDirectionalRates(c.Param("email"), body.Rates); err != nil {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+	if err := a.clientService.PushInboundDirectionalRates(&a.inboundService, c.Param("email"), body.Rates); err != nil {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+	if err := a.xrayService.RefreshRatePolicy(); err != nil {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+	notifyClientsChanged()
+	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundClientUpdateSuccess"), nil)
+}
+
+func (a *ClientController) setInboundLinkPolicies(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), errors.New("invalid inbound id"))
+		return
+	}
+	var body struct {
+		Policies []model.ClientLinkPolicy `json:"policies"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+	if err := a.clientService.SetInboundLinkPolicies(id, body.Policies); err != nil {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+	if err := a.xrayService.RefreshRatePolicy(); err != nil {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+	notifyClientsChanged()
+	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundClientUpdateSuccess"), nil)
+}
+
+func (a *ClientController) setInboundRates(c *gin.Context) {
+	var body struct {
+		Rates map[int]int64 `json:"rates"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+	if err := a.clientService.SetInboundRates(c.Param("email"), body.Rates); err != nil {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+	if err := a.clientService.PushInboundRates(&a.inboundService, c.Param("email"), body.Rates); err != nil {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+	if err := a.xrayService.RefreshRatePolicy(); err != nil {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+	notifyClientsChanged()
+	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundClientUpdateSuccess"), nil)
+}
+
+func (a *ClientController) getInboundWindowQuotas(c *gin.Context) {
+	quotas, err := a.clientService.GetInboundWindowQuotas(c.Param("email"))
+	jsonObj(c, quotas, err)
+}
+
+func (a *ClientController) getInboundWindowStatus(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("inboundId"))
+	if err != nil || id <= 0 {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), errors.New("invalid inbound id"))
+		return
+	}
+	status, err := a.clientService.GetInboundWindowStatus(c.Param("email"), id)
+	jsonObj(c, status, err)
+}
+
+func (a *ClientController) setInboundWindowQuotas(c *gin.Context) {
+	var body struct {
+		Quotas map[int]service.InboundWindowQuota `json:"quotas"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+	if err := a.clientService.SetInboundWindowQuotas(c.Param("email"), body.Quotas); err != nil {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+	if err := a.clientService.PushInboundWindowQuotas(&a.inboundService, c.Param("email"), body.Quotas); err != nil {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+	if err := a.xrayService.RefreshRatePolicy(); err != nil {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+	notifyClientsChanged()
+	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundClientUpdateSuccess"), nil)
 }
 
 func (a *ClientController) attach(c *gin.Context) {
@@ -529,15 +659,25 @@ func (a *ClientController) delOrphans(c *gin.Context) {
 
 func (a *ClientController) resetTrafficByEmail(c *gin.Context) {
 	email := c.Param("email")
-	needRestart, err := a.clientService.ResetTrafficByEmail(&a.inboundService, email)
-	if err != nil {
-		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
-		return
+	scope, _ := c.Get("api_token_scope")
+	var needRestart bool
+	var err error
+	if scope == model.ApiScopeNodeSync {
+		needRestart, err = a.clientService.ResetTrafficByEmailFromMaster(&a.inboundService, email)
+	} else {
+		needRestart, err = a.clientService.ResetTrafficByEmail(&a.inboundService, email)
 	}
-	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.resetInboundClientTrafficSuccess"), nil)
 	if needRestart {
 		a.xrayService.SetToNeedRestart()
 	}
+	if err != nil {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		// A node reset may fail after the local transaction committed. Refresh
+		// clients so the operator sees that partial state before retrying.
+		notifyClientsChanged()
+		return
+	}
+	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.resetInboundClientTrafficSuccess"), nil)
 	notifyClientsChanged()
 }
 

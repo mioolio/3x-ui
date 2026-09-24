@@ -452,17 +452,29 @@ func (s *NodeService) Create(n *model.Node) error {
 		return err
 	}
 	db := database.GetDB()
-	if !nodetoken.Enabled() {
-		return db.Create(n).Error
-	}
+	requestedEnable := n.Enable
+	defer func() { n.Enable = requestedEnable }()
 	plaintext := n.ApiToken
+	encryptToken := nodetoken.Enabled()
 	return db.Transaction(func(tx *gorm.DB) error {
-		// The id-bound ciphertext can only be produced after insertion. Never put
-		// plaintext in the initial tuple: PostgreSQL WAL would retain it.
-		n.ApiToken = ""
-		defer func() { n.ApiToken = plaintext }()
+		if encryptToken {
+			// The id-bound ciphertext can only be produced after insertion. Never put
+			// plaintext in the initial tuple: PostgreSQL WAL would retain it.
+			n.ApiToken = ""
+			defer func() { n.ApiToken = plaintext }()
+		}
 		if err := tx.Create(n).Error; err != nil {
 			return err
+		}
+		// GORM's default:true replaces an explicit false with true on Create.
+		// Preserve a disabled node so it can be saved offline and checked on enable.
+		if !requestedEnable {
+			if err := tx.Model(model.Node{}).Where("id = ?", n.Id).Update("enable", false).Error; err != nil {
+				return err
+			}
+		}
+		if !encryptToken {
+			return nil
 		}
 		enc, err := nodetoken.Encrypt(n.Id, plaintext)
 		if err != nil {

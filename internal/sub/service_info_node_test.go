@@ -301,7 +301,7 @@ func TestSubService_GetSubs_NonSubscriptionBody_NoInfoNode(t *testing.T) {
 	}
 }
 
-func TestSubService_InfoNode_MultiClient_DeterministicPrimaryEmail(t *testing.T) {
+func TestSubService_InfoNode_MultiClient_PreservesRealLinks(t *testing.T) {
 	setupInfoNodeTestDB(t)
 	db := database.GetDB()
 
@@ -354,12 +354,8 @@ func TestSubService_InfoNode_MultiClient_DeterministicPrimaryEmail(t *testing.T)
 		if err != nil {
 			t.Fatalf("GetSubs error: %v", err)
 		}
-		if len(links) < 1 || !strings.HasPrefix(links[0], "socks://127.0.0.1:1080#") {
-			t.Fatalf("expected dummy socks node, got: %v", links)
-		}
-		decodedRemark, _ := url.QueryUnescape(strings.TrimPrefix(links[0], "socks://127.0.0.1:1080#"))
-		if decodedRemark != "alpha@test.com" {
-			t.Fatalf("expected primaryEmail 'alpha@test.com' (sorted alphabetically), got %q", decodedRemark)
+		if len(links) != 2 || !strings.HasPrefix(links[0], "vless://") || !strings.HasPrefix(links[1], "vless://") {
+			t.Fatalf("shared subscription must keep both real links without a synthetic single-account status: %v", links)
 		}
 	}
 }

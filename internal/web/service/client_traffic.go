@@ -13,12 +13,38 @@ import (
 )
 
 func (s *ClientService) ResetTrafficByEmail(inboundSvc *InboundService, email string) (bool, error) {
+	return s.resetTrafficByEmail(inboundSvc, email, false)
+}
+
+// ResetTrafficByEmailFromMaster is called only for a node-sync authenticated
+// request from an upstream panel. That panel owns the aggregated quota and is
+// already resetting its own counters; a fresh global row on this node must not
+// prevent the reset from reaching the local Xray runtime.
+func (s *ClientService) ResetTrafficByEmailFromMaster(inboundSvc *InboundService, email string) (bool, error) {
+	return s.resetTrafficByEmail(inboundSvc, email, true)
+}
+
+func (s *ClientService) resetTrafficByEmail(inboundSvc *InboundService, email string, fromMaster bool) (bool, error) {
 	if email == "" {
 		return false, common.NewError("client email is required")
 	}
 	rec, err := s.GetRecordByEmail(nil, email)
 	if err != nil {
 		return false, err
+	}
+	if !fromMaster {
+		var count int64
+		err = database.GetDB().Model(&model.ClientGlobalTraffic{}).
+			Where("email = ? AND updated_at >= ? AND (up > 0 OR down > 0 OR charge_extra_bytes > 0 OR charge_discount_bytes > 0)",
+				email, globalTrafficFreshSince()).
+			Where("NOT EXISTS (SELECT 1 FROM nodes WHERE nodes.guid = client_global_traffics.master_guid)").
+			Limit(1).Count(&count).Error
+		if err != nil {
+			return false, err
+		}
+		if count > 0 {
+			return false, common.NewError("该客户端的总流量由上级面板管理，请在主面板重置流量")
+		}
 	}
 	inboundIds, err := s.GetInboundIdsForRecord(rec.Id)
 	if err != nil {
@@ -90,7 +116,9 @@ func (s *ClientService) BulkResetTraffic(inboundSvc *InboundService, emails []st
 			for _, batch := range chunkStrings(cleanEmails, sqlInChunk) {
 				res := tx.Model(xray.ClientTraffic{}).
 					Where("email IN ?", batch).
-					Updates(map[string]any{"enable": true, "up": 0, "down": 0})
+					Updates(map[string]any{"enable": true, "up": 0, "down": 0,
+						"charge_extra_bytes": 0, "charge_discount_bytes": 0, "grace_baseline_bytes": 0,
+						"grace_baseline_expiry": 0, "quota_epoch": time.Now().UnixNano()})
 				if res.Error != nil {
 					return res.Error
 				}
@@ -155,7 +183,9 @@ func (s *ClientService) resetAllClientTrafficsLocked(id int) error {
 
 		result := tx.Model(xray.ClientTraffic{}).
 			Where("email IN ?", resetEmails).
-			Updates(map[string]any{"enable": true, "up": 0, "down": 0})
+			Updates(map[string]any{"enable": true, "up": 0, "down": 0,
+				"charge_extra_bytes": 0, "charge_discount_bytes": 0, "grace_baseline_bytes": 0,
+				"grace_baseline_expiry": 0, "quota_epoch": time.Now().UnixNano()})
 
 		if result.Error != nil {
 			return result.Error
@@ -195,12 +225,9 @@ func (s *ClientService) ResetAllTraffics() (bool, error) {
 		return database.GetDB().Transaction(func(tx *gorm.DB) error {
 			res := tx.Model(&xray.ClientTraffic{}).
 				Where("1 = 1").
-				Updates(map[string]any{
-					"enable": true, "up": 0, "down": 0,
-					"window_used": 0, "window_started": 0, "window_disabled": false,
-					"period_used": 0, "period_started": 0, "period_disabled": false,
-					"throttled_since": 0,
-				})
+				Updates(map[string]any{"enable": true, "up": 0, "down": 0,
+					"charge_extra_bytes": 0, "charge_discount_bytes": 0, "grace_baseline_bytes": 0,
+					"grace_baseline_expiry": 0, "quota_epoch": time.Now().UnixNano()})
 			if res.Error != nil {
 				return res.Error
 			}

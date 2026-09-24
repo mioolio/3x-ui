@@ -54,3 +54,25 @@ func TestAggregateTrafficByEmails_FallsBackToClientLimits(t *testing.T) {
 		t.Errorf("expiry = %d, want %d (fallback to clients table)", agg.ExpiryTime, expiry)
 	}
 }
+
+func TestAggregateTrafficByEmails_PreservesInboundDiscount(t *testing.T) {
+	dbDir := t.TempDir()
+	t.Setenv("XUI_DB_FOLDER", dbDir)
+	if err := database.InitDB(filepath.Join(dbDir, "x-ui.db")); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.CloseDB() })
+	db := database.GetDB()
+	for _, row := range []xray.ClientTraffic{
+		{Email: "discount-a@example.invalid", Up: 100, ChargeDiscountBytes: 50, Enable: true},
+		{Email: "discount-b@example.invalid", Down: 200, ChargeExtraBytes: 40, ChargeDiscountBytes: 80, Enable: true},
+	} {
+		if err := db.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	agg, _ := new(SubService).AggregateTrafficByEmails([]string{"discount-a@example.invalid", "discount-b@example.invalid"})
+	if agg.Up != 100 || agg.Down != 200 || agg.ChargeExtraBytes != 40 || agg.ChargeDiscountBytes != 130 {
+		t.Fatalf("discounted aggregate = %+v", agg)
+	}
+}

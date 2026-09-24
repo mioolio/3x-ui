@@ -86,7 +86,7 @@ func TestClampedAddExpr_CapsAtTrafficMax(t *testing.T) {
 	}
 
 	query := "UPDATE client_traffics SET up = " + ClampedAddExpr("up") + ", down = " + ClampedAddExpr("down") + " WHERE email = ?"
-	if err := db.Exec(query, int64(1_000_000), int64(5), "near-cap@x").Error; err != nil {
+	if err := db.Exec(query, TrafficMax, int64(5), "near-cap@x").Error; err != nil {
 		t.Fatalf("clamped add: %v", err)
 	}
 

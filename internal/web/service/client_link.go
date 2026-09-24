@@ -56,7 +56,61 @@ func applyClientRecordMerge(row *model.ClientRecord, incoming *model.ClientRecor
 	row.SubID = incoming.SubID
 	row.LimitIP = incoming.LimitIP
 	row.TotalGB = incoming.TotalGB
+	legacyRateChanged := row.SpeedLimitKbps != incoming.SpeedLimitKbps
+	row.SpeedLimitKbps = incoming.SpeedLimitKbps
+	if incoming.SpeedLimitUpKbps != nil {
+		row.SpeedLimitUpKbps = incoming.SpeedLimitUpKbps
+	} else if legacyRateChanged {
+		row.SpeedLimitUpKbps = nil
+	}
+	if incoming.SpeedLimitDownKbps != nil {
+		row.SpeedLimitDownKbps = incoming.SpeedLimitDownKbps
+	} else if legacyRateChanged {
+		row.SpeedLimitDownKbps = nil
+	}
+	p := incoming.PolicyPatch
+	if p.TotalExhaustAction != nil {
+		row.TotalExhaustAction = *p.TotalExhaustAction
+	}
+	if p.TotalExhaustUpKbps != nil {
+		row.TotalExhaustUpKbps = *p.TotalExhaustUpKbps
+	}
+	if p.TotalExhaustDownKbps != nil {
+		row.TotalExhaustDownKbps = *p.TotalExhaustDownKbps
+	}
+	if p.TotalOverageMultiplierBps != nil {
+		row.TotalOverageMultiplierBps = *p.TotalOverageMultiplierBps
+	}
+	row.WindowQuotaBytes = incoming.WindowQuotaBytes
+	row.WindowHours = incoming.WindowHours
+	if incoming.WindowMode != "" {
+		row.WindowMode = incoming.WindowMode
+	}
+	if p.WindowExhaustAction != nil {
+		row.WindowExhaustAction = *p.WindowExhaustAction
+	}
+	if p.WindowExhaustUpKbps != nil {
+		row.WindowExhaustUpKbps = *p.WindowExhaustUpKbps
+	}
+	if p.WindowExhaustDownKbps != nil {
+		row.WindowExhaustDownKbps = *p.WindowExhaustDownKbps
+	}
+	if p.WindowOverageMultiplierBps != nil {
+		row.WindowOverageMultiplierBps = *p.WindowOverageMultiplierBps
+	}
 	row.ExpiryTime = incoming.ExpiryTime
+	if p.GraceHours != nil {
+		row.GraceHours = *p.GraceHours
+	}
+	if p.GraceUpKbps != nil {
+		row.GraceUpKbps = *p.GraceUpKbps
+	}
+	if p.GraceDownKbps != nil {
+		row.GraceDownKbps = *p.GraceDownKbps
+	}
+	if p.GraceQuotaBytes != nil {
+		row.GraceQuotaBytes = *p.GraceQuotaBytes
+	}
 	row.Enable = incoming.Enable
 	row.TgID = incoming.TgID
 	if incoming.Group != "" {
@@ -74,19 +128,6 @@ func applyClientRecordMerge(row *model.ClientRecord, incoming *model.ClientRecor
 	if incoming.TrafficResetDay > 0 {
 		row.TrafficResetDay = incoming.TrafficResetDay
 	}
-	// Bandwidth controls are edited as a whole block: zero is a legitimate
-	// value that clears a setting, so they copy unconditionally.
-	row.SpeedLimitUp = incoming.SpeedLimitUp
-	row.SpeedLimitDown = incoming.SpeedLimitDown
-	row.DepletionAction = incoming.DepletionAction
-	row.DepletionSpeed = incoming.DepletionSpeed
-	row.DepletionGraceDays = incoming.DepletionGraceDays
-	row.DepletionPeriod = incoming.DepletionPeriod
-	row.DepletionPeriodGB = incoming.DepletionPeriodGB
-	row.WindowQuotaGB = incoming.WindowQuotaGB
-	row.WindowMinutes = incoming.WindowMinutes
-	row.WindowAction = incoming.WindowAction
-	row.WindowSpeed = incoming.WindowSpeed
 	if incoming.CreatedAt > 0 && (row.CreatedAt == 0 || incoming.CreatedAt < row.CreatedAt) {
 		row.CreatedAt = incoming.CreatedAt
 	}

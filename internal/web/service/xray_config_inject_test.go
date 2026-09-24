@@ -10,6 +10,7 @@ import (
 	"github.com/mhsanaei/3x-ui/v3/internal/amneziawgnet"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	xuilogger "github.com/mhsanaei/3x-ui/v3/internal/logger"
+	"github.com/mhsanaei/3x-ui/v3/internal/mtproto"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/json_util"
 	"github.com/mhsanaei/3x-ui/v3/internal/xray"
 
@@ -424,6 +425,55 @@ func TestInjectNodeEgresses_BadRoutingSkips(t *testing.T) {
 
 func mtprotoInbound(tag string, settings string) *model.Inbound {
 	return &model.Inbound{Tag: tag, Protocol: model.MTProto, Enable: true, Settings: settings}
+}
+
+func TestInjectMtprotoEgress_CappedInboundUsesAuthenticatedDirectBridge(t *testing.T) {
+	cfg := egressTestConfig()
+	ib := mtprotoInbound("mt-capped", `{"routeThroughXray":false,"routeXrayPort":50077,"rateBridgePassword":"test-token","outboundTag":"warp"}`)
+	ib.Id = 77
+	ib.SpeedLimitKbps = 1_500
+	injectMtprotoEgress(cfg, ib)
+	if len(cfg.InboundConfigs) != 2 {
+		t.Fatalf("capped MTProto inbound needs a real Xray bridge, got %+v", cfg.InboundConfigs)
+	}
+	bridge := cfg.InboundConfigs[1]
+	if bridge.Tag != ib.Tag || bridge.Port != 50077 {
+		t.Fatalf("incorrect capped bridge: %+v", bridge)
+	}
+	var socks struct {
+		Auth     string `json:"auth"`
+		Accounts []struct {
+			User string `json:"user"`
+			Pass string `json:"pass"`
+		} `json:"accounts"`
+	}
+	if err := json.Unmarshal(bridge.Settings, &socks); err != nil {
+		t.Fatal(err)
+	}
+	if socks.Auth != "password" || len(socks.Accounts) != 1 ||
+		socks.Accounts[0].User != mtproto.RateBridgeUser(ib.Id) || socks.Accounts[0].Pass != "test-token" {
+		t.Fatalf("bridge must identify aggregate traffic for the core: %+v", socks)
+	}
+	var routing egressRouting
+	if err := json.Unmarshal(cfg.RouterConfig, &routing); err != nil {
+		t.Fatal(err)
+	}
+	if len(routing.Rules) == 0 || routing.Rules[0].OutboundTag != "mtproto-rate-direct-77" {
+		t.Fatalf("rate-only mode must preserve direct Telegram egress: %+v", routing.Rules)
+	}
+	var outbounds []struct {
+		Tag      string `json:"tag"`
+		Protocol string `json:"protocol"`
+	}
+	if err := json.Unmarshal(cfg.OutboundConfigs, &outbounds); err != nil {
+		t.Fatal(err)
+	}
+	if got := outbounds[len(outbounds)-1]; got.Tag != "mtproto-rate-direct-77" || got.Protocol != "freedom" {
+		t.Fatalf("rate-only direct outbound missing: %+v", got)
+	}
+	if !mtprotoRoutesThroughXray(ib) {
+		t.Fatal("a capped inbound must request Xray bridge reconciliation")
+	}
 }
 
 func TestInjectMtprotoEgress_WithOutbound(t *testing.T) {

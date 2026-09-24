@@ -63,13 +63,18 @@ func TestSubInfoEndpoint_ServesStatusJSONEvenForBrowsers(t *testing.T) {
 	if isOnline, ok := info["isOnline"].(bool); !ok || isOnline {
 		t.Fatalf("isOnline = %v, want false with no live xray", info["isOnline"])
 	}
-	emails, ok := info["emails"].([]any)
-	if !ok || len(emails) != 1 || emails[0] != "info@x" {
-		t.Fatalf("emails = %v, want [info@x]", info["emails"])
+	if _, hasEmails := info["emails"]; hasEmails {
+		t.Fatal("info payload must not include account email addresses")
 	}
-	subUrl, _ := info["subUrl"].(string)
-	if !strings.HasSuffix(subUrl, "/sub/info-sub") {
-		t.Fatalf("subUrl = %q, want a /sub/info-sub suffix", subUrl)
+	for _, private := range []string{"info@x", "11111111-1111-1111-1111-111111111111", "pbk=abc", "clientEmail"} {
+		if strings.Contains(w.Body.String(), private) {
+			t.Fatalf("info payload leaks %q", private)
+		}
+	}
+	for _, key := range []string{"subUrl", "subJsonUrl", "subClashUrl"} {
+		if _, present := info[key]; present {
+			t.Fatalf("info payload must not repeat credential-bearing %q", key)
+		}
 	}
 	for _, key := range []string{"enabled", "used", "remained", "expire", "lastOnline", "datepicker", "announce"} {
 		if _, present := info[key]; !present {

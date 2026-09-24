@@ -66,6 +66,9 @@ func TestGetInboundOptions_NodeAddress(t *testing.T) {
 	if got.NodeAddress != "node.example.net" {
 		t.Fatalf("node inbound NodeAddress = %q, want node.example.net", got.NodeAddress)
 	}
+	if got.NodeName != "de-fra-1" {
+		t.Fatalf("node inbound NodeName = %q, want de-fra-1", got.NodeName)
+	}
 	if got.Listen != "0.0.0.0" {
 		t.Fatalf("node inbound Listen = %q, want 0.0.0.0", got.Listen)
 	}
@@ -79,6 +82,9 @@ func TestGetInboundOptions_NodeAddress(t *testing.T) {
 	}
 	if local.NodeAddress != "" {
 		t.Fatalf("local inbound NodeAddress = %q, want empty", local.NodeAddress)
+	}
+	if local.NodeName != "" {
+		t.Fatalf("local inbound NodeName = %q, want empty", local.NodeName)
 	}
 	if local.ShareAddrStrategy != "custom" {
 		t.Fatalf("local inbound ShareAddrStrategy = %q, want custom", local.ShareAddrStrategy)

@@ -9,10 +9,14 @@ const RULE = 'input-number(no-synthetic-clear)';
 
 function runGuard(target: string): string {
   try {
-    execFileSync('./node_modules/.bin/oxlint', ['-c', `${FIXTURES}/guard.oxlintrc.json`, target], {
-      encoding: 'utf8',
-      stdio: 'pipe',
-    });
+    execFileSync(
+      process.execPath,
+      ['./node_modules/oxlint/bin/oxlint', '-c', `${FIXTURES}/guard.oxlintrc.json`, target],
+      {
+        encoding: 'utf8',
+        stdio: 'pipe',
+      },
+    );
     return '';
   } catch (error) {
     return String((error as { stdout?: string }).stdout ?? '');

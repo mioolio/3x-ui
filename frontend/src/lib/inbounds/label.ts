@@ -8,6 +8,21 @@ export function formatInboundLabel(tag?: string, remark?: string): string {
   return (tag || '').trim();
 }
 
+/** Include the physical node and database ID when choosing where to attach a client. */
+export function formatInboundOptionLabel(inbound: {
+  id: number;
+  tag?: string;
+  remark?: string;
+  nodeId?: number | null;
+  nodeName?: string;
+  nodeAddress?: string;
+}): string {
+  const name = formatInboundLabel(inbound.tag, inbound.remark);
+  if (inbound.nodeId == null) return name ? `${name} · #${inbound.id}` : `#${inbound.id}`;
+  const node = inbound.nodeName?.trim() || inbound.nodeAddress?.trim() || `node #${inbound.nodeId}`;
+  return name ? `${name} · ${node} · #${inbound.id}` : `${node} · #${inbound.id}`;
+}
+
 export function formatTunnelConfigMeta(
   inbound: { id?: number; tag?: string; remark?: string },
   email?: string,

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -43,18 +44,22 @@ import (
 // Compiled once at package load: GetTraffic runs on every traffic-stats tick,
 // so recompiling these per call is wasted work.
 var (
-	trafficRegex       = regexp.MustCompile(`(inbound|outbound)>>>([^>]+)>>>traffic>>>(downlink|uplink)`)
-	clientTrafficRegex = regexp.MustCompile(`user>>>([^>]+)>>>traffic>>>(downlink|uplink)`)
+	trafficRegex             = regexp.MustCompile(`(inbound|outbound)>>>([^>]+)>>>traffic>>>(downlink|uplink)`)
+	clientTrafficRegex       = regexp.MustCompile(`user>>>([^>]+)>>>traffic>>>(downlink|uplink)`)
+	panelTrafficRegex        = regexp.MustCompile(`^panel>>>([^>]+)>>>([^>]+)>>>traffic>>>(downlink|uplink)$`)
+	panelChargeExtraRegex    = regexp.MustCompile(`^panel>>>([^>]+)>>>([^>]+)>>>chargeExtra>>>(downlink|uplink)$`)
+	panelChargeDiscountRegex = regexp.MustCompile(`^panel>>>([^>]+)>>>([^>]+)>>>chargeDiscount>>>(downlink|uplink)$`)
 )
 
 // XrayAPI is a gRPC client for managing Xray core configuration, inbounds, outbounds, and statistics.
 type XrayAPI struct {
-	HandlerServiceClient *command.HandlerServiceClient
-	StatsServiceClient   *statsService.StatsServiceClient
-	RoutingServiceClient *routerService.RoutingServiceClient
-	grpcClient           *grpc.ClientConn
-	isConnected          bool
-	StatsLastValues      map[string]int64
+	HandlerServiceClient      *command.HandlerServiceClient
+	StatsServiceClient        *statsService.StatsServiceClient
+	RoutingServiceClient      *routerService.RoutingServiceClient
+	grpcClient                *grpc.ClientConn
+	isConnected               bool
+	StatsLastValues           map[string]int64
+	LastInboundClientTraffics []*InboundClientTraffic
 }
 
 func getRequiredUserString(user map[string]any, key string) (string, error) {
@@ -777,6 +782,9 @@ func (x *XrayAPI) GetTraffic() ([]*Traffic, []*ClientTraffic, error) {
 
 	tagTrafficMap := make(map[string]*Traffic)
 	emailTrafficMap := make(map[string]*ClientTraffic)
+	perInbound := make(map[string]*InboundClientTraffic)
+	chargeExtraByEmail := make(map[string]int64)
+	chargeDiscountByEmail := make(map[string]int64)
 
 	baselinePass := len(x.StatsLastValues) == 0
 
@@ -794,7 +802,67 @@ func (x *XrayAPI) GetTraffic() ([]*Traffic, []*ClientTraffic, error) {
 			processTraffic(matches, value, tagTrafficMap)
 		} else if matches := clientTrafficRegex.FindStringSubmatch(stat.Name); len(matches) == 3 {
 			processClientTraffic(matches, value, emailTrafficMap)
+		} else if matches := panelTrafficRegex.FindStringSubmatch(stat.Name); len(matches) == 4 {
+			tag, tagErr := url.QueryUnescape(matches[1])
+			email, emailErr := url.QueryUnescape(matches[2])
+			if tagErr != nil || emailErr != nil || tag == "" || email == "" {
+				continue
+			}
+			if isInternalMtprotoBridgeEmail(email) {
+				continue
+			}
+			key := tag + "\x00" + email
+			row := perInbound[key]
+			if row == nil {
+				row = &InboundClientTraffic{Tag: tag, Email: email}
+				perInbound[key] = row
+			}
+			if matches[3] == "uplink" {
+				row.Up += value
+			} else {
+				row.Down += value
+			}
+		} else if matches := panelChargeExtraRegex.FindStringSubmatch(stat.Name); len(matches) == 4 {
+			email, emailErr := url.QueryUnescape(matches[2])
+			if emailErr != nil || email == "" {
+				continue
+			}
+			if isInternalMtprotoBridgeEmail(email) {
+				continue
+			}
+			chargeExtraByEmail[email] += value
+		} else if matches := panelChargeDiscountRegex.FindStringSubmatch(stat.Name); len(matches) == 4 {
+			email, emailErr := url.QueryUnescape(matches[2])
+			if emailErr != nil || email == "" {
+				continue
+			}
+			if isInternalMtprotoBridgeEmail(email) {
+				continue
+			}
+			chargeDiscountByEmail[email] += value
 		}
+	}
+	for email, extra := range chargeExtraByEmail {
+		if extra <= 0 {
+			continue
+		}
+		row := emailTrafficMap[email]
+		if row == nil {
+			row = &ClientTraffic{Email: email}
+			emailTrafficMap[email] = row
+		}
+		row.ChargeExtraDelta += extra
+	}
+	for email, discount := range chargeDiscountByEmail {
+		if discount <= 0 {
+			continue
+		}
+		row := emailTrafficMap[email]
+		if row == nil {
+			row = &ClientTraffic{Email: email}
+			emailTrafficMap[email] = row
+		}
+		row.ChargeDiscountDelta += discount
 	}
 
 	// Drop delta baselines for stats that no longer exist (deleted inbounds or
@@ -809,6 +877,10 @@ func (x *XrayAPI) GetTraffic() ([]*Traffic, []*ClientTraffic, error) {
 		x.StatsLastValues = pruned
 	}
 
+	x.LastInboundClientTraffics = make([]*InboundClientTraffic, 0, len(perInbound))
+	for _, row := range perInbound {
+		x.LastInboundClientTraffics = append(x.LastInboundClientTraffics, row)
+	}
 	return mapToSlice(tagTrafficMap), mapToSlice(emailTrafficMap), nil
 }
 
@@ -898,6 +970,9 @@ func processTraffic(matches []string, value int64, trafficMap map[string]*Traffi
 // processClientTraffic updates clientTrafficMap with upload/download values for a client email.
 func processClientTraffic(matches []string, value int64, clientTrafficMap map[string]*ClientTraffic) {
 	email := matches[1]
+	if isInternalMtprotoBridgeEmail(email) {
+		return
+	}
 	isDown := matches[2] == "downlink"
 
 	traffic, ok := clientTrafficMap[email]
@@ -911,6 +986,10 @@ func processClientTraffic(matches []string, value int64, clientTrafficMap map[st
 	} else {
 		traffic.Up = value
 	}
+}
+
+func isInternalMtprotoBridgeEmail(email string) bool {
+	return strings.HasPrefix(email, "mtproto-rate-") && strings.HasSuffix(email, "@loopback.invalid")
 }
 
 // mapToSlice converts a map of pointers to a slice of pointers.

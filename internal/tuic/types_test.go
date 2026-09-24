@@ -7,6 +7,16 @@ import (
 )
 
 func TestInstanceFromInbound(t *testing.T) {
+	t.Run("directional inbound rate inherits symmetric value", func(t *testing.T) {
+		zero := int64(0)
+		ib := &model.Inbound{Protocol: model.TUIC, SpeedLimitKbps: 500,
+			SpeedLimitUpKbps: &zero, Settings: `{}`}
+		inst, ok := InstanceFromInbound(ib)
+		if !ok || inst.SpeedLimitUpKbps != 0 || inst.SpeedLimitDownKbps != 500 {
+			t.Fatalf("inherited limits = (%d up, %d down), ok=%t", inst.SpeedLimitUpKbps, inst.SpeedLimitDownKbps, ok)
+		}
+	})
+
 	t.Run("valid settings", func(t *testing.T) {
 		ib := &model.Inbound{
 			Id:       10,
