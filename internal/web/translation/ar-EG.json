@@ -176,6 +176,7 @@
       "xraySwitch": "النسخة",
       "xrayUpdates": "تحديثات Xray",
       "xraySwitchClickDesk": "اختار بحذر، النسخ القديمة ممكن ما تتوافقش مع الإعدادات الحالية.",
+      "managedUpdateNotice": "This customized build updates the panel and patched Xray core together. Use the matching deployment package.",
       "updatePanel": "تحديث البانل",
       "panelUpdateDesc": "ده هيحدث 3X-UI لآخر إصدار وهيعيد تشغيل خدمة البانل.",
       "currentPanelVersion": "إصدار البانل الحالي",

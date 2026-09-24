@@ -58,7 +58,8 @@ func TestMtprotoFinalSampleUsesRunningSidecarPolicy(t *testing.T) {
 	if len(global) != 1 || global[0].ChargeExtraDelta != 10 || global[0].ChargeDiscountDelta != 0 {
 		t.Fatalf("final sample used new desired factor instead of running sidecar: %+v", global)
 	}
-	if len(windows) != 1 || windows[0].Up != 7 || windows[0].Down != 3 {
+	if len(windows) != 1 || windows[0].Up != 7 || windows[0].Down != 3 ||
+		windows[0].ChargeExtraDelta != 10 || !windows[0].ChargeCountersSeen {
 		t.Fatalf("final sample lost per-inbound window bytes: %+v", windows)
 	}
 	if len(inbounds) != 0 {
@@ -104,14 +105,14 @@ func TestMtprotoTrafficRowsAggregateSharedEmailButKeepInboundWindows(t *testing.
 		inboundID int
 		used      int64
 	}{
-		{0, 150}, {first.Id, 100}, {second.Id, 50},
+		{0, 101}, {first.Id, 1}, {second.Id, 100},
 	} {
 		status, err := service.WindowQuotaStatus(db, client.Id, test.inboundID, 200, 2, "rolling", now)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if status.UsedBytes != test.used {
-			t.Fatalf("window %d used %d physical bytes, want %d", test.inboundID, status.UsedBytes, test.used)
+			t.Fatalf("window %d used %d charged bytes, want %d", test.inboundID, status.UsedBytes, test.used)
 		}
 	}
 }

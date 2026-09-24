@@ -4,6 +4,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { sameSpeedMap, useClients } from '@/hooks/useClients';
+import { chargedTrafficBytes } from '@/lib/clients/traffic-display';
 import { makeTestQueryClient } from '@/test/test-utils';
 import { HttpUtil, Msg } from '@/utils';
 import type { ClientsSummary } from '@/schemas/client';
@@ -49,9 +50,10 @@ describe('client summary always reflects the server, never a client_stats recomp
     summary: serverSummary,
   };
 
-  function mockPanel() {
+  function mockPanel(items: unknown[] = []) {
     vi.spyOn(HttpUtil, 'get').mockImplementation(async (url: string) => {
-      if (url.includes('/clients/list/paged')) return new Msg(true, '', pagedResponse);
+      if (url.includes('/clients/list/paged'))
+        return new Msg(true, '', { ...pagedResponse, items });
       if (url.includes('/inbounds/options')) return new Msg(true, '', []);
       return new Msg(true, '', null);
     });
@@ -69,8 +71,8 @@ describe('client summary always reflects the server, never a client_stats recomp
     );
   }
 
-  async function loadedHook() {
-    mockPanel();
+  async function loadedHook(items: unknown[] = []) {
+    mockPanel(items);
     const { result } = renderHook(() => useClients(), { wrapper: wrapperFor() });
     await waitFor(() => expect(result.current.settingsReady).toBe(true));
     act(() => {
@@ -114,5 +116,29 @@ describe('client summary always reflects the server, never a client_stats recomp
     });
 
     expect(result.current.summary).toEqual(serverSummary);
+  });
+
+  it('preserves billed counters from page load and live traffic updates', async () => {
+    const result = await loadedHook([
+      {
+        email: 'billed@x',
+        totalGB: 100,
+        enable: true,
+        traffic: { up: 10, down: 0, chargeExtraBytes: 30, chargeDiscountBytes: 0 },
+      },
+    ]);
+    expect(result.current.clients[0].traffic?.chargeExtraBytes).toBe(30);
+    expect(chargedTrafficBytes(result.current.clients[0].traffic || {})).toBe(40);
+
+    act(() => {
+      result.current.applyClientStatsEvent({
+        clients: [
+          { email: 'billed@x', up: 20, down: 0, chargeExtraBytes: 80, chargeDiscountBytes: 5 },
+        ],
+      });
+    });
+    await waitFor(() =>
+      expect(chargedTrafficBytes(result.current.clients[0].traffic || {})).toBe(95),
+    );
   });
 });

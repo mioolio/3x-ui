@@ -783,8 +783,27 @@ func (x *XrayAPI) GetTraffic() ([]*Traffic, []*ClientTraffic, error) {
 	tagTrafficMap := make(map[string]*Traffic)
 	emailTrafficMap := make(map[string]*ClientTraffic)
 	perInbound := make(map[string]*InboundClientTraffic)
-	chargeExtraByEmail := make(map[string]int64)
-	chargeDiscountByEmail := make(map[string]int64)
+	getInbound := func(tag, email string) *InboundClientTraffic {
+		key := tag + "\x00" + email
+		row := perInbound[key]
+		if row == nil {
+			row = &InboundClientTraffic{Tag: tag, Email: email}
+			perInbound[key] = row
+		}
+		return row
+	}
+	addGlobalCharge := func(email string, extra, discount int64) {
+		if extra <= 0 && discount <= 0 {
+			return
+		}
+		row := emailTrafficMap[email]
+		if row == nil {
+			row = &ClientTraffic{Email: email}
+			emailTrafficMap[email] = row
+		}
+		row.ChargeExtraDelta = addNonnegativeStatDelta(row.ChargeExtraDelta, extra)
+		row.ChargeDiscountDelta = addNonnegativeStatDelta(row.ChargeDiscountDelta, discount)
+	}
 
 	baselinePass := len(x.StatsLastValues) == 0
 
@@ -811,58 +830,39 @@ func (x *XrayAPI) GetTraffic() ([]*Traffic, []*ClientTraffic, error) {
 			if isInternalMtprotoBridgeEmail(email) {
 				continue
 			}
-			key := tag + "\x00" + email
-			row := perInbound[key]
-			if row == nil {
-				row = &InboundClientTraffic{Tag: tag, Email: email}
-				perInbound[key] = row
-			}
+			row := getInbound(tag, email)
 			if matches[3] == "uplink" {
-				row.Up += value
+				row.Up = addNonnegativeStatDelta(row.Up, value)
 			} else {
-				row.Down += value
+				row.Down = addNonnegativeStatDelta(row.Down, value)
 			}
 		} else if matches := panelChargeExtraRegex.FindStringSubmatch(stat.Name); len(matches) == 4 {
+			tag, tagErr := url.QueryUnescape(matches[1])
 			email, emailErr := url.QueryUnescape(matches[2])
-			if emailErr != nil || email == "" {
+			if tagErr != nil || emailErr != nil || tag == "" || email == "" {
 				continue
 			}
 			if isInternalMtprotoBridgeEmail(email) {
 				continue
 			}
-			chargeExtraByEmail[email] += value
+			row := getInbound(tag, email)
+			row.ChargeCountersSeen = true
+			row.ChargeExtraDelta = addNonnegativeStatDelta(row.ChargeExtraDelta, value)
+			addGlobalCharge(email, value, 0)
 		} else if matches := panelChargeDiscountRegex.FindStringSubmatch(stat.Name); len(matches) == 4 {
+			tag, tagErr := url.QueryUnescape(matches[1])
 			email, emailErr := url.QueryUnescape(matches[2])
-			if emailErr != nil || email == "" {
+			if tagErr != nil || emailErr != nil || tag == "" || email == "" {
 				continue
 			}
 			if isInternalMtprotoBridgeEmail(email) {
 				continue
 			}
-			chargeDiscountByEmail[email] += value
+			row := getInbound(tag, email)
+			row.ChargeCountersSeen = true
+			row.ChargeDiscountDelta = addNonnegativeStatDelta(row.ChargeDiscountDelta, value)
+			addGlobalCharge(email, 0, value)
 		}
-	}
-	for email, extra := range chargeExtraByEmail {
-		if extra <= 0 {
-			continue
-		}
-		row := emailTrafficMap[email]
-		if row == nil {
-			row = &ClientTraffic{Email: email}
-			emailTrafficMap[email] = row
-		}
-		row.ChargeExtraDelta += extra
-	}
-	for email, discount := range chargeDiscountByEmail {
-		if discount <= 0 {
-			continue
-		}
-		row := emailTrafficMap[email]
-		if row == nil {
-			row = &ClientTraffic{Email: email}
-			emailTrafficMap[email] = row
-		}
-		row.ChargeDiscountDelta += discount
 	}
 
 	// Drop delta baselines for stats that no longer exist (deleted inbounds or
@@ -882,6 +882,16 @@ func (x *XrayAPI) GetTraffic() ([]*Traffic, []*ClientTraffic, error) {
 		x.LastInboundClientTraffics = append(x.LastInboundClientTraffics, row)
 	}
 	return mapToSlice(tagTrafficMap), mapToSlice(emailTrafficMap), nil
+}
+
+func addNonnegativeStatDelta(current, delta int64) int64 {
+	if delta <= 0 {
+		return current
+	}
+	if current > math.MaxInt64-delta {
+		return math.MaxInt64
+	}
+	return current + delta
 }
 
 // OnlineIP is one source address of a live connection, with the unix time (seconds)

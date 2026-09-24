@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -37,6 +38,7 @@ type PanelUpdateInfo struct {
 	CurrentCommit   string `json:"currentCommit,omitempty"`
 	LatestCommit    string `json:"latestCommit,omitempty"`
 	UpdateAvailable bool   `json:"updateAvailable"`
+	UpdateSupported bool   `json:"updateSupported"`
 }
 
 const (
@@ -129,6 +131,11 @@ func (s *PanelService) RestartPanel(delay time.Duration) error {
 // is enabled on a dev build it compares commits against the rolling dev release;
 // otherwise it compares versions against the latest stable tag.
 func (s *PanelService) GetUpdateInfo() (*PanelUpdateInfo, error) {
+	if config.RequiresPatchedCore {
+		// Upstream's release feed cannot describe this distribution. Do not
+		// advertise a release whose installer would remove the patched core.
+		return &PanelUpdateInfo{Channel: "managed", CurrentVersion: config.GetPanelVersion()}, nil
+	}
 	if devChannelActive() {
 		return getDevUpdateInfo()
 	}
@@ -142,6 +149,7 @@ func (s *PanelService) GetUpdateInfo() (*PanelUpdateInfo, error) {
 		CurrentVersion:  current,
 		LatestVersion:   latest,
 		UpdateAvailable: isNewerVersion(latest, current),
+		UpdateSupported: true,
 	}, nil
 }
 
@@ -174,6 +182,7 @@ func getDevUpdateInfo() (*PanelUpdateInfo, error) {
 		LatestCommit:    shortCommit(latestCommit),
 		LatestVersion:   "dev+" + shortCommit(latestCommit),
 		UpdateAvailable: !commitsEqual(currentCommit, latestCommit),
+		UpdateSupported: true,
 	}, nil
 }
 
@@ -181,6 +190,9 @@ func getDevUpdateInfo() (*PanelUpdateInfo, error) {
 // setting. Returns the run ID to pass to GetUpdateStatus so the caller can
 // tell this run's result apart from a stale one.
 func (s *PanelService) StartUpdate() (int64, error) {
+	if config.RequiresPatchedCore {
+		return 0, errors.New(config.IncompatibleOfficialUpdate)
+	}
 	return s.startUpdate(devChannelActive())
 }
 
@@ -188,6 +200,9 @@ func (s *PanelService) StartUpdate() (int64, error) {
 // overriding the local dev-channel setting. Used by the master node updater so
 // a node can be moved to the dev channel from the central panel.
 func (s *PanelService) StartUpdateChannel(dev bool) (int64, error) {
+	if config.RequiresPatchedCore {
+		return 0, errors.New(config.IncompatibleOfficialUpdate)
+	}
 	return s.startUpdate(dev)
 }
 
@@ -213,6 +228,9 @@ func (s *PanelService) GetUpdateStatus() *PanelUpdateStatus {
 }
 
 func (s *PanelService) startUpdate(useDev bool) (int64, error) {
+	if config.RequiresPatchedCore {
+		return 0, errors.New(config.IncompatibleOfficialUpdate)
+	}
 	runID := time.Now().UnixNano()
 	if !acquireUpdateSlot(runID) {
 		return 0, fmt.Errorf("a panel update is already in progress")

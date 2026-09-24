@@ -12,6 +12,8 @@ const nullableNumberArray = z
 export const ClientTrafficSchema = z.object({
   up: z.number().optional(),
   down: z.number().optional(),
+  chargeExtraBytes: z.number().optional(),
+  chargeDiscountBytes: z.number().optional(),
   total: z.number().optional(),
   expiryTime: z.number().optional(),
   enable: z.boolean().optional(),

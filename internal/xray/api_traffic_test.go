@@ -190,3 +190,43 @@ func TestGetTrafficSkipsAPIInboundAndPrunes(t *testing.T) {
 		t.Fatal("baselines for stats that no longer exist were not pruned")
 	}
 }
+
+func TestGetTrafficKeepsExactChargeByInbound(t *testing.T) {
+	api := startFakeStats(t, [][]*statsService.Stat{
+		{stat("user>>>alice>>>traffic>>>uplink", 0)},
+		{
+			stat("user>>>alice>>>traffic>>>uplink", 100),
+			stat("user>>>alice>>>traffic>>>downlink", 50),
+			stat("panel>>>premium%2F50x>>>alice>>>traffic>>>uplink", 100),
+			stat("panel>>>premium%2F50x>>>alice>>>chargeExtra>>>uplink", 4900),
+			stat("panel>>>premium%2F50x>>>alice>>>chargeDiscount>>>uplink", 0),
+			stat("panel>>>discount>>>alice>>>traffic>>>downlink", 50),
+			stat("panel>>>discount>>>alice>>>chargeExtra>>>downlink", 0),
+			stat("panel>>>discount>>>alice>>>chargeDiscount>>>downlink", 49),
+		},
+	})
+	if _, _, err := api.GetTraffic(); err != nil {
+		t.Fatal(err)
+	}
+	_, global, err := api.GetTraffic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	alice := clientTrafficByEmail(t, global)["alice"]
+	if alice == nil || alice.Up != 100 || alice.Down != 50 || alice.ChargeExtraDelta != 4900 || alice.ChargeDiscountDelta != 49 {
+		t.Fatalf("global delta = %+v", alice)
+	}
+	byTag := make(map[string]*InboundClientTraffic)
+	for _, row := range api.LastInboundClientTraffics {
+		byTag[row.Tag] = row
+	}
+	if len(byTag) != 2 || byTag["premium/50x"] == nil || byTag["discount"] == nil {
+		t.Fatalf("per-inbound rows = %+v", api.LastInboundClientTraffics)
+	}
+	if got := byTag["premium/50x"]; got.Up != 100 || got.ChargeExtraDelta != 4900 || !got.ChargeCountersSeen {
+		t.Fatalf("50x charge = %+v", got)
+	}
+	if got := byTag["discount"]; got.Down != 50 || got.ChargeDiscountDelta != 49 || !got.ChargeCountersSeen {
+		t.Fatalf("discount charge = %+v", got)
+	}
+}

@@ -17,6 +17,7 @@ interface BusyEvent {
 interface VersionModalProps {
   open: boolean;
   status: Status;
+  updateSupported?: boolean;
   onClose: () => void;
   onBusy: (e: BusyEvent) => void;
 }
@@ -30,7 +31,13 @@ const GEOFILES = [
   'geoip_RU.dat',
 ];
 
-export default function VersionModal({ open, status, onClose, onBusy }: VersionModalProps) {
+export default function VersionModal({
+  open,
+  status,
+  updateSupported = true,
+  onClose,
+  onBusy,
+}: VersionModalProps) {
   const { t } = useTranslation();
   const [modal, modalContextHolder] = Modal.useModal();
   const [activeKey, setActiveKey] = useState<string | string[]>('1');
@@ -49,12 +56,12 @@ export default function VersionModal({ open, status, onClose, onBusy }: VersionM
   const [wasOpen, setWasOpen] = useState(false);
   if (open !== wasOpen) {
     setWasOpen(open);
-    if (open) setLoading(true);
+    if (open && updateSupported) setLoading(true);
   }
 
   useEffect(() => {
-    if (open) void fetchVersions();
-  }, [open, fetchVersions]);
+    if (open && updateSupported) void fetchVersions();
+  }, [open, updateSupported, fetchVersions]);
 
   function switchXrayVersion(version: string) {
     modal.confirm({
@@ -115,22 +122,28 @@ export default function VersionModal({ open, status, onClose, onBusy }: VersionM
               children: (
                 <>
                   <Alert
-                    type="warning"
+                    type={updateSupported ? 'warning' : 'info'}
                     className="mb-12"
-                    title={t('pages.index.xraySwitchClickDesk')}
+                    title={t(
+                      updateSupported
+                        ? 'pages.index.xraySwitchClickDesk'
+                        : 'pages.index.managedUpdateNotice',
+                    )}
                     showIcon
                   />
-                  <div className="version-list">
-                    {versions.map((version, index) => (
-                      <div key={version} className="version-list-item">
-                        <Tag color={index % 2 === 0 ? 'purple' : 'green'}>{version}</Tag>
-                        <Radio
-                          checked={version === `v${status?.xray?.version}`}
-                          onClick={() => switchXrayVersion(version)}
-                        />
-                      </div>
-                    ))}
-                  </div>
+                  {updateSupported && (
+                    <div className="version-list">
+                      {versions.map((version, index) => (
+                        <div key={version} className="version-list-item">
+                          <Tag color={index % 2 === 0 ? 'purple' : 'green'}>{version}</Tag>
+                          <Radio
+                            checked={version === `v${status?.xray?.version}`}
+                            onClick={() => switchXrayVersion(version)}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </>
               ),
             },

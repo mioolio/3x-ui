@@ -176,6 +176,7 @@
       "xraySwitch": "Phiên bản",
       "xrayUpdates": "Cập nhật Xray",
       "xraySwitchClickDesk": "Hãy lựa chọn thận trọng, vì các phiên bản cũ có thể không tương thích với các cấu hình hiện tại.",
+      "managedUpdateNotice": "This customized build updates the panel and patched Xray core together. Use the matching deployment package.",
       "updatePanel": "Cập nhật Panel",
       "panelUpdateDesc": "Điều này sẽ cập nhật 3X-UI lên bản phát hành mới nhất và khởi động lại dịch vụ panel.",
       "currentPanelVersion": "Phiên bản panel hiện tại",

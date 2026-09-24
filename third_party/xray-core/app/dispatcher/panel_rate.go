@@ -139,6 +139,7 @@ type panelThrottle struct {
 
 type panelDecision struct {
 	allowed        bool
+	charged        int64
 	extra          int64
 	discount       int64
 	graceReserved  bool
@@ -207,10 +208,10 @@ func panelState(key string, remaining, epoch int64, allowIncrease bool) panelQuo
 	return state
 }
 
-// panelBillableBytes splits one buffer at every window and total allowance
-// boundary. Each physical byte is billed at the largest active multiplier,
-// never at a product of overlapping multipliers. Fractional billable bytes are
-// carried across buffers for the same client.
+// panelBillableBytes splits one buffer at every charged window and total
+// allowance boundary. Each physical byte is billed at the largest active
+// multiplier, never at a product of overlapping multipliers. Fractional
+// billable bytes are carried across buffers for the same client.
 func panelBillableBytes(bytes, totalLeft, fraction int64, total *panelQuotaRef, windows []panelQuotaRef) (int64, int64) {
 	return panelBillableBytesAtFactor(bytes, totalLeft, fraction, 10_000, total, windows)
 }
@@ -221,31 +222,24 @@ func panelBillableBytesAtFactor(bytes, totalLeft, fraction, inboundFactor int64,
 		step := bytes - position
 		factor := inboundFactor
 		for _, window := range windows {
-			if window.rule.Action != "throttle" {
-				continue
-			}
-			if window.state.left <= position {
+			if window.rule.Action == "throttle" && window.state.left <= billed {
 				factor = max(factor, panelMultiplier(window.rule.MultiplierBps))
-			} else if boundary := window.state.left - position; boundary < step {
-				step = boundary
 			}
 		}
 		if total != nil && total.rule.Action == "throttle" {
-			remaining := panelSubtract(totalLeft, billed)
-			if remaining <= 0 {
+			if totalLeft <= billed {
 				factor = max(factor, panelMultiplier(total.rule.MultiplierBps))
-			} else if remaining <= (math.MaxInt64-fraction)/10_000 {
-				// The next physical byte that reaches the total threshold
-				// switches subsequent bytes to the overage multiplier.
-				numerator := remaining*10_000 - fraction
-				threshold := numerator / factor
-				if numerator%factor != 0 {
-					threshold++
-				}
-				if threshold > 0 && threshold < step {
-					step = threshold
-				}
 			}
+		}
+		// A threshold-crossing byte uses the current multiplier. The
+		// overage multiplier applies to the next physical byte.
+		for _, window := range windows {
+			if window.rule.Action == "throttle" && window.state.left > billed {
+				step = min(step, panelBytesToQuotaBoundary(window.state.left-billed, fraction, factor))
+			}
+		}
+		if total != nil && total.rule.Action == "throttle" && totalLeft > billed {
+			step = min(step, panelBytesToQuotaBoundary(totalLeft-billed, fraction, factor))
 		}
 		if step <= 0 {
 			step = 1
@@ -263,6 +257,18 @@ func panelBillableBytesAtFactor(bytes, totalLeft, fraction, inboundFactor int64,
 		position += step
 	}
 	return billed, fraction
+}
+
+func panelBytesToQuotaBoundary(remaining, fraction, factor int64) int64 {
+	if remaining > (math.MaxInt64-fraction)/10_000 {
+		return math.MaxInt64
+	}
+	numerator := remaining*10_000 - fraction
+	threshold := numerator / factor
+	if numerator%factor != 0 {
+		threshold++
+	}
+	return threshold
 }
 
 // Reserve quotas under one lock before a buffer is forwarded. Missing new
@@ -320,9 +326,15 @@ func panelDecide(policy panelRatePolicy, email, pair, direction string, bytes in
 		}
 	}
 
-	decision := panelDecision{allowed: true}
+	fraction := panelRates.chargeFraction[email]
+	totalLeft := int64(0)
+	if total != nil {
+		totalLeft = total.state.left
+	}
+	billed, nextFraction := panelBillableBytesAtFactor(bytes, totalLeft, fraction, panelInboundMultiplier(policy, pair), total, windows)
+	decision := panelDecision{allowed: true, charged: billed, fractionBefore: fraction, fractionAfter: nextFraction}
 	for _, window := range windows {
-		if window.state.left >= bytes {
+		if window.state.left >= billed && (window.state.left > 0 || window.rule.Action == "throttle") {
 			continue
 		}
 		if window.rule.Action != "throttle" {
@@ -332,16 +344,8 @@ func panelDecide(policy panelRatePolicy, email, pair, direction string, bytes in
 			decision.throttles = append(decision.throttles, panelThrottle{window.key, speed})
 		}
 	}
-
-	fraction := panelRates.chargeFraction[email]
-	decision.fractionBefore = fraction
-	totalLeft := int64(0)
 	if total != nil {
-		totalLeft = total.state.left
-	}
-	billed, nextFraction := panelBillableBytesAtFactor(bytes, totalLeft, fraction, panelInboundMultiplier(policy, pair), total, windows)
-	if total != nil {
-		if total.state.left < billed {
+		if total.state.left < billed || (total.state.left <= 0 && total.rule.Action != "throttle") {
 			if total.rule.Action != "throttle" {
 				return panelDecision{}
 			}
@@ -353,7 +357,7 @@ func panelDecide(policy panelRatePolicy, email, pair, direction string, bytes in
 		panelRates.quotas[total.key] = total.state
 	}
 	for _, window := range windows {
-		window.state.left = panelSubtract(window.state.left, bytes)
+		window.state.left = panelSubtract(window.state.left, billed)
 		panelRates.quotas[window.key] = window.state
 	}
 	if grace != nil {
@@ -367,7 +371,6 @@ func panelDecide(policy panelRatePolicy, email, pair, direction string, bytes in
 		}
 	}
 	panelRates.chargeFraction[email] = nextFraction
-	decision.fractionAfter = nextFraction
 	decision.extra = max(0, billed-bytes)
 	decision.discount = max(0, bytes-billed)
 	return decision
@@ -387,7 +390,6 @@ func panelPreviewThrottles(policy panelRatePolicy, email, pair, direction string
 		total = &ref
 	}
 	windows := make([]panelQuotaRef, 0, 2)
-	throttles := make([]panelThrottle, 0, 4)
 	for _, key := range [2]string{email, pair} {
 		rule, found := policy.WindowQuotas[key]
 		if !found {
@@ -399,14 +401,21 @@ func panelPreviewThrottles(policy panelRatePolicy, email, pair, direction string
 		ref := panelQuotaRef{key: "window:" + key, rule: rule}
 		ref.state = panelPeekState(ref.key, rule.Remaining, rule.Epoch, true)
 		windows = append(windows, ref)
-		if rule.Action == "throttle" && ref.state.left < bytes {
-			if speed := panelQuotaRate(rule, direction); speed > 0 {
-				throttles = append(throttles, panelThrottle{ref.key, speed})
+	}
+	totalLeft := int64(0)
+	if total != nil {
+		totalLeft = total.state.left
+	}
+	billed, _ := panelBillableBytesAtFactor(bytes, totalLeft, panelRates.chargeFraction[email], panelInboundMultiplier(policy, pair), total, windows)
+	throttles := make([]panelThrottle, 0, 4)
+	for _, window := range windows {
+		if window.rule.Action == "throttle" && window.state.left < billed {
+			if speed := panelQuotaRate(window.rule, direction); speed > 0 {
+				throttles = append(throttles, panelThrottle{window.key, speed})
 			}
 		}
 	}
 	if total != nil && total.rule.Action == "throttle" {
-		billed, _ := panelBillableBytesAtFactor(bytes, total.state.left, panelRates.chargeFraction[email], panelInboundMultiplier(policy, pair), total, windows)
 		if total.state.left < billed {
 			if speed := panelQuotaRate(total.rule, direction); speed > 0 {
 				throttles = append(throttles, panelThrottle{total.key, speed})
@@ -456,7 +465,7 @@ func panelRefund(policy panelRatePolicy, email, pair string, bytes int64, decisi
 	panelRates.Lock()
 	defer panelRates.Unlock()
 	if total, found := policy.TotalQuotas[email]; found {
-		panelRefundState("total:"+email, bytes+decision.extra-decision.discount, total.Remaining, total.Epoch)
+		panelRefundState("total:"+email, decision.charged, total.Remaining, total.Epoch)
 	}
 	for _, key := range [2]string{email, pair} {
 		window, found := policy.WindowQuotas[key]
@@ -464,7 +473,7 @@ func panelRefund(policy panelRatePolicy, email, pair string, bytes int64, decisi
 			window, found = policy.Quotas[key]
 		}
 		if found {
-			panelRefundState("window:"+key, bytes, window.Remaining, window.Epoch)
+			panelRefundState("window:"+key, decision.charged, window.Remaining, window.Epoch)
 		}
 	}
 	if decision.graceReserved {

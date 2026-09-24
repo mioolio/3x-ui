@@ -176,6 +176,7 @@
       "xraySwitch": "‌نسخه",
       "xrayUpdates": "به‌روزرسانی‌های Xray",
       "xraySwitchClickDesk": "لطفا بادقت انتخاب کنید. درصورت انتخاب نسخه قدیمی‌تر، امکان ناهماهنگی با پیکربندی فعلی وجود دارد",
+      "managedUpdateNotice": "This customized build updates the panel and patched Xray core together. Use the matching deployment package.",
       "updatePanel": "به‌روزرسانی پنل",
       "panelUpdateDesc": "این عملیات 3X-UI را به آخرین نسخه به‌روزرسانی می‌کند و سرویس پنل را مجدداً راه‌اندازی می‌کند.",
       "currentPanelVersion": "نسخه فعلی پنل",

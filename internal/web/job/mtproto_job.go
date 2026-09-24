@@ -76,7 +76,7 @@ func mtprotoAddNonnegative(current, delta int64) int64 {
 
 // trafficRows combines authenticated secrets that share one panel client row.
 // The database writes client usage by email, whereas window quotas also need
-// each inbound's distinct physical delta.
+// each inbound's distinct physical and billed deltas.
 func (j *MtprotoJob) trafficRows(deltas []mtproto.Traffic, multipliers map[string]int, routedTags map[string]bool) ([]*xray.ClientTraffic, []*xray.InboundClientTraffic, []*xray.Traffic) {
 	clientTraffics := make([]*xray.ClientTraffic, 0, len(deltas))
 	clientsByEmail := make(map[string]*xray.ClientTraffic, len(deltas))
@@ -106,11 +106,12 @@ func (j *MtprotoJob) trafficRows(deltas []mtproto.Traffic, multipliers map[strin
 		row.Down = mtprotoAddNonnegative(row.Down, down)
 		row.ChargeExtraDelta = mtprotoAddNonnegative(row.ChargeExtraDelta, extra)
 		row.ChargeDiscountDelta = mtprotoAddNonnegative(row.ChargeDiscountDelta, discount)
-		// Window allowances measure physical transfer, matching the patched
-		// Xray dispatcher's window reservation. The multiplier only changes the
-		// paid total allowance, so preserve each secret's physical delta here.
+		// Preserve the exact bill from the running sidecar policy. Recalculating
+		// from today's configured multiplier would lose fractional carry and
+		// misbill a final sample after an inbound policy change.
 		perInboundTraffics = append(perInboundTraffics, &xray.InboundClientTraffic{
 			Tag: d.Tag, Email: d.Email, Up: up, Down: down,
+			ChargeExtraDelta: extra, ChargeDiscountDelta: discount, ChargeCountersSeen: true,
 		})
 		if !routed {
 			inboundUp[d.Tag] = mtprotoAddNonnegative(inboundUp[d.Tag], up)

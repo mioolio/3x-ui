@@ -140,6 +140,28 @@ type clientQueryJoin struct {
 	args []any
 }
 
+// Keep the clients page's filters and ordering on the same charged-usage
+// basis as quota enforcement and the subscription page. The four counters are
+// overlaid independently when a master has pushed newer global traffic.
+func clientChargedUsageExpr(up, down, extra, discount string) string {
+	positive := func(value string) string {
+		return "(CASE WHEN COALESCE(" + value + ", 0) > 0 THEN " + value + " ELSE 0 END)"
+	}
+	add := func(left, right string) string {
+		return "(CASE WHEN " + left + " > 9223372036854775807 - " + right +
+			" THEN 9223372036854775807 ELSE " + left + " + " + right + " END)"
+	}
+	physical := add(positive(up), positive(down))
+	charged := add(physical, positive(extra))
+	credit := positive(discount)
+	return "(CASE WHEN " + credit + " >= " + charged + " THEN 0 ELSE " + charged + " - " + credit + " END)"
+}
+
+func clientMaxCounterExpr(local, global string) string {
+	return "(CASE WHEN COALESCE(" + global + ", 0) > COALESCE(" + local + ", 0)" +
+		" THEN COALESCE(" + global + ", 0) ELSE COALESCE(" + local + ", 0) END)"
+}
+
 func newClientQuery(db *gorm.DB, nowMs, expireDiffMs, trafficDiffBytes int64) clientQuery {
 	q := clientQuery{
 		db:               db,
@@ -147,7 +169,7 @@ func newClientQuery(db *gorm.DB, nowMs, expireDiffMs, trafficDiffBytes int64) cl
 		expireDiffMs:     expireDiffMs,
 		trafficDiffBytes: trafficDiffBytes,
 		joins:            []clientQueryJoin{{sql: "LEFT JOIN client_traffics ct ON ct.email = c.email"}},
-		usedExpr:         "(COALESCE(ct.up, 0) + COALESCE(ct.down, 0))",
+		usedExpr:         clientChargedUsageExpr("ct.up", "ct.down", "ct.charge_extra_bytes", "ct.charge_discount_bytes"),
 	}
 	freshSince := globalTrafficFreshSince()
 	var probe int64
@@ -160,12 +182,17 @@ func newClientQuery(db *gorm.DB, nowMs, expireDiffMs, trafficDiffBytes int64) cl
 	// A master still pushes cross-panel usage here, so the predicates have to
 	// see the same raised counters overlayGlobalTraffic applies on read.
 	q.joins = append(q.joins, clientQueryJoin{
-		sql: "LEFT JOIN (SELECT email, MAX(up) AS up, MAX(down) AS down FROM client_global_traffics" +
+		sql: "LEFT JOIN (SELECT email, MAX(up) AS up, MAX(down) AS down," +
+			" MAX(charge_extra_bytes) AS charge_extra_bytes, MAX(charge_discount_bytes) AS charge_discount_bytes FROM client_global_traffics" +
 			" WHERE updated_at >= ? GROUP BY email) g ON g.email = c.email",
 		args: []any{freshSince},
 	})
-	q.usedExpr = "(CASE WHEN COALESCE(g.up, 0) > COALESCE(ct.up, 0) THEN COALESCE(g.up, 0) ELSE COALESCE(ct.up, 0) END" +
-		" + CASE WHEN COALESCE(g.down, 0) > COALESCE(ct.down, 0) THEN COALESCE(g.down, 0) ELSE COALESCE(ct.down, 0) END)"
+	q.usedExpr = clientChargedUsageExpr(
+		clientMaxCounterExpr("ct.up", "g.up"),
+		clientMaxCounterExpr("ct.down", "g.down"),
+		clientMaxCounterExpr("ct.charge_extra_bytes", "g.charge_extra_bytes"),
+		clientMaxCounterExpr("ct.charge_discount_bytes", "g.charge_discount_bytes"),
+	)
 	return q
 }
 

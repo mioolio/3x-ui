@@ -176,6 +176,7 @@
       "xraySwitch": "Sürüm",
       "xrayUpdates": "Xray Güncellemeleri",
       "xraySwitchClickDesk": "Dikkatli seçin, eski sürümler mevcut yapılandırmalarla uyumlu olmayabilir.",
+      "managedUpdateNotice": "This customized build updates the panel and patched Xray core together. Use the matching deployment package.",
       "updatePanel": "Paneli Güncelle",
       "panelUpdateDesc": "Bu işlem 3X-UI'yi en son sürüme güncelleyecek ve panel servisini yeniden başlatacaktır.",
       "currentPanelVersion": "Mevcut panel sürümü",

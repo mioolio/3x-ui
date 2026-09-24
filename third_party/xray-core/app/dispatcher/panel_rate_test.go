@@ -203,8 +203,8 @@ func TestPanelQuotaOverageUsesMaximumMultiplier(t *testing.T) {
 		},
 	}
 	decision := panelDecide(policy, email, pair, "down", 10, time.UnixMilli(1_800_000_000_000))
-	if !decision.allowed || decision.extra != 7 {
-		t.Fatalf("first buffer decision = %+v, want allowed with 7 extra billable bytes", decision)
+	if !decision.allowed || decision.extra != 8 {
+		t.Fatalf("first buffer decision = %+v, want allowed with 8 extra billable bytes", decision)
 	}
 	if len(decision.throttles) != 2 || decision.throttles[0].rate != 200 || decision.throttles[1].rate != 120 {
 		t.Fatalf("window throttles = %+v, want both independent download limits", decision.throttles)
@@ -212,11 +212,184 @@ func TestPanelQuotaOverageUsesMaximumMultiplier(t *testing.T) {
 	panelRates.Lock()
 	left := panelRates.quotas["total:"+email].left
 	panelRates.Unlock()
-	if left != 3 {
-		t.Fatalf("total allowance left = %d, want 3 (10 physical + 7 extra charged)", left)
+	if left != 2 {
+		t.Fatalf("total allowance left = %d, want 2 (10 physical + 8 extra charged)", left)
 	}
 	if decision := panelDecide(policy, email, pair, "up", 2, time.UnixMilli(1_800_000_000_000)); decision.allowed {
 		t.Fatal("next buffer costs 6 at the larger 3x multiplier and must hit hard total cap")
+	}
+}
+
+func TestPanelInboundMultiplierChargesTotalAndBothWindows(t *testing.T) {
+	const email = "charged-windows@example.invalid"
+	pair := "fifty-times\x00" + email
+	policy := panelRatePolicy{
+		InboundMultipliers: map[string]int64{"fifty-times": 500_000},
+		TotalQuotas:        map[string]panelQuota{email: {Remaining: 300, Epoch: 1}},
+		WindowQuotas: map[string]panelQuota{
+			email: {Remaining: 150, Epoch: 1},
+			pair:  {Remaining: 100, Epoch: 1},
+		},
+	}
+	now := time.UnixMilli(1_800_000_000_000)
+	first := panelDecide(policy, email, pair, "down", 2, now)
+	if !first.allowed || first.charged != 100 || first.extra != 98 {
+		t.Fatalf("50x decision = %+v, want 100 charged bytes", first)
+	}
+	panelRates.Lock()
+	total := panelRates.quotas["total:"+email].left
+	global := panelRates.quotas["window:"+email].left
+	linked := panelRates.quotas["window:"+pair].left
+	panelRates.Unlock()
+	if total != 200 || global != 50 || linked != 0 {
+		t.Fatalf("charged balances = total %d, global %d, linked %d", total, global, linked)
+	}
+	if rejected := panelDecide(policy, email, pair, "down", 1, now); rejected.allowed {
+		t.Fatalf("exhausted linked window allowed another 50x byte: %+v", rejected)
+	}
+	panelRates.Lock()
+	unchanged := panelRates.quotas["total:"+email].left == total && panelRates.quotas["window:"+email].left == global && panelRates.quotas["window:"+pair].left == linked && panelRates.chargeFraction[email] == 0
+	panelRates.Unlock()
+	if !unchanged {
+		t.Fatal("rejected buffer consumed a charged quota or fraction")
+	}
+}
+
+func TestPanelFractionalInboundMultiplierStopsAtExhaustedWindow(t *testing.T) {
+	const email = "fractional-windows@example.invalid"
+	pair := "one-hundredth\x00" + email
+	policy := panelRatePolicy{
+		InboundMultipliers: map[string]int64{"one-hundredth": 100},
+		TotalQuotas:        map[string]panelQuota{email: {Remaining: 1, Epoch: 1}},
+		WindowQuotas: map[string]panelQuota{
+			email: {Remaining: 1, Epoch: 1},
+			pair:  {Remaining: 1, Epoch: 1},
+		},
+	}
+	now := time.UnixMilli(1_800_000_000_000)
+	for i := 0; i < 99; i++ {
+		if decision := panelDecide(policy, email, pair, "up", 1, now); !decision.allowed || decision.charged != 0 {
+			t.Fatalf("discounted byte %d = %+v, want zero rounded charge", i+1, decision)
+		}
+	}
+	panelRates.Lock()
+	left := panelRates.quotas["window:"+pair].left
+	fraction := panelRates.chargeFraction[email]
+	panelRates.Unlock()
+	if left != 1 || fraction != 9900 {
+		t.Fatalf("after 99 physical bytes: left=%d fraction=%d", left, fraction)
+	}
+	if decision := panelDecide(policy, email, pair, "up", 1, now); !decision.allowed || decision.charged != 1 {
+		t.Fatalf("hundredth discounted byte = %+v, want one charged byte", decision)
+	}
+	if decision := panelDecide(policy, email, pair, "up", 1, now); decision.allowed {
+		t.Fatalf("zero remaining hard window allowed an extra discounted byte: %+v", decision)
+	}
+	panelRates.Lock()
+	total := panelRates.quotas["total:"+email].left
+	global := panelRates.quotas["window:"+email].left
+	linked := panelRates.quotas["window:"+pair].left
+	fraction = panelRates.chargeFraction[email]
+	panelRates.Unlock()
+	if total != 0 || global != 0 || linked != 0 || fraction != 0 {
+		t.Fatalf("exhausted balances changed: total=%d global=%d linked=%d fraction=%d", total, global, linked, fraction)
+	}
+}
+
+func TestPanelWindowOverageStartsAtChargedBoundary(t *testing.T) {
+	const email = "charged-overage@example.invalid"
+	pair := "double-inbound\x00" + email
+	policy := panelRatePolicy{
+		InboundMultipliers: map[string]int64{"double-inbound": 20_000},
+		TotalQuotas:        map[string]panelQuota{email: {Remaining: 100, Epoch: 1}},
+		WindowQuotas: map[string]panelQuota{
+			email: {Remaining: 2, Epoch: 1, Action: "throttle", DownKbps: 20, MultiplierBps: 30_000},
+			pair:  {Remaining: 5, Epoch: 1, Action: "throttle", DownKbps: 10, MultiplierBps: 40_000},
+		},
+	}
+	now := time.UnixMilli(1_800_000_000_000)
+	preview := panelPreviewThrottles(policy, email, pair, "down", 4, now)
+	if len(preview) != 2 || preview[0].rate != 20 || preview[1].rate != 10 {
+		t.Fatalf("charged-window throttle preview = %+v", preview)
+	}
+	decision := panelDecide(policy, email, pair, "down", 4, now)
+	if !decision.allowed || decision.charged != 13 || decision.extra != 9 || len(decision.throttles) != 2 {
+		t.Fatalf("2x inbound, then 3x and 4x overage = %+v, want 13 charged bytes", decision)
+	}
+	panelRates.Lock()
+	total := panelRates.quotas["total:"+email].left
+	global := panelRates.quotas["window:"+email].left
+	linked := panelRates.quotas["window:"+pair].left
+	panelRates.Unlock()
+	if total != 87 || global != -11 || linked != -8 {
+		t.Fatalf("overage balances = total %d, global %d, linked %d", total, global, linked)
+	}
+}
+
+func TestPanelPreviewUsesChargedWindowBudgetWithoutReserving(t *testing.T) {
+	const email = "charged-preview@example.invalid"
+	pair := "preview-fifty\x00" + email
+	policy := panelRatePolicy{
+		InboundMultipliers: map[string]int64{"preview-fifty": 500_000},
+		WindowQuotas: map[string]panelQuota{
+			pair: {Remaining: 49, Epoch: 1, Action: "throttle", UpKbps: 25},
+		},
+	}
+	now := time.UnixMilli(1_800_000_000_000)
+	preview := panelPreviewThrottles(policy, email, pair, "up", 1, now)
+	if len(preview) != 1 || preview[0].key != "window:"+pair || preview[0].rate != 25 {
+		t.Fatalf("50x preview for one physical byte = %+v", preview)
+	}
+	panelRates.Lock()
+	_, reserved := panelRates.quotas["window:"+pair]
+	panelRates.Unlock()
+	if reserved {
+		t.Fatal("preview reserved the window allowance")
+	}
+	decision := panelDecide(policy, email, pair, "up", 1, now)
+	if !decision.allowed || decision.charged != 50 || len(decision.throttles) != 1 {
+		t.Fatalf("commit differs from charged preview: %+v", decision)
+	}
+}
+
+func TestPanelRefundRestoresChargedWindowsAndFraction(t *testing.T) {
+	const email = "charged-refund@example.invalid"
+	pair := "one-and-half\x00" + email
+	policy := panelRatePolicy{
+		InboundMultipliers: map[string]int64{"one-and-half": 15_000},
+		TotalQuotas:        map[string]panelQuota{email: {Remaining: 3, Epoch: 1}},
+		WindowQuotas: map[string]panelQuota{
+			email: {Remaining: 3, Epoch: 1},
+			pair:  {Remaining: 3, Epoch: 1},
+		},
+	}
+	now := time.UnixMilli(1_800_000_000_000)
+	first := panelDecide(policy, email, pair, "up", 1, now)
+	second := panelDecide(policy, email, pair, "up", 1, now)
+	if !first.allowed || first.charged != 1 || !second.allowed || second.charged != 2 {
+		t.Fatalf("fractional decisions = %+v then %+v", first, second)
+	}
+	panelRefund(policy, email, pair, 1, second)
+	panelRates.Lock()
+	total := panelRates.quotas["total:"+email].left
+	global := panelRates.quotas["window:"+email].left
+	linked := panelRates.quotas["window:"+pair].left
+	fraction := panelRates.chargeFraction[email]
+	panelRates.Unlock()
+	if total != 2 || global != 2 || linked != 2 || fraction != 5000 {
+		t.Fatalf("refunded balances = total %d, global %d, linked %d, fraction %d", total, global, linked, fraction)
+	}
+	if replay := panelDecide(policy, email, pair, "up", 1, now); !replay.allowed || replay.charged != 2 {
+		t.Fatalf("replayed byte after refund = %+v, want two charged bytes", replay)
+	}
+	if rejected := panelDecide(policy, email, pair, "up", 1, now); rejected.allowed {
+		t.Fatalf("buffer crossing hard charged balance = %+v", rejected)
+	}
+	panelRates.Lock()
+	fraction = panelRates.chargeFraction[email]
+	panelRates.Unlock()
+	if fraction != 0 {
+		t.Fatalf("rejected buffer changed fraction to %d", fraction)
 	}
 }
 

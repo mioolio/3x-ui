@@ -176,6 +176,7 @@
       "xraySwitch": "Versi",
       "xrayUpdates": "Pembaruan Xray",
       "xraySwitchClickDesk": "Pilih dengan hati-hati, karena versi yang lebih lama mungkin tidak kompatibel dengan konfigurasi saat ini.",
+      "managedUpdateNotice": "This customized build updates the panel and patched Xray core together. Use the matching deployment package.",
       "updatePanel": "Perbarui Panel",
       "panelUpdateDesc": "Ini akan memperbarui 3X-UI ke rilis terbaru dan me-restart layanan panel.",
       "currentPanelVersion": "Versi panel saat ini",

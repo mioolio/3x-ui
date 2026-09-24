@@ -7,6 +7,12 @@ type InboundClientTraffic struct {
 	Email string
 	Up    int64
 	Down  int64
+	// Charge deltas come from counters scoped to this inbound and client. A
+	// present zero counter still matters: it proves the running core reported
+	// the exact charge, so callers must not recalculate it using today's rate.
+	ChargeExtraDelta    int64
+	ChargeDiscountDelta int64
+	ChargeCountersSeen  bool
 }
 
 // ClientTraffic represents traffic statistics and limits for a specific client.

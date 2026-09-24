@@ -176,6 +176,7 @@
       "xraySwitch": "Выбор версии",
       "xrayUpdates": "Обновления Xray",
       "xraySwitchClickDesk": "Важно: старые версии могут не поддерживать текущие настройки",
+      "managedUpdateNotice": "This customized build updates the panel and patched Xray core together. Use the matching deployment package.",
       "updatePanel": "Обновить панель",
       "panelUpdateDesc": "Это обновит 3X-UI до последнего релиза и перезапустит сервис панели.",
       "currentPanelVersion": "Текущая версия панели",

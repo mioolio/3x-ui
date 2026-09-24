@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 )
@@ -115,6 +116,9 @@ func TestDelInboundsPushesNodeDeletesConcurrently(t *testing.T) {
 }
 
 func TestUpdatePanelsReachesNodesConcurrently(t *testing.T) {
+	if config.RequiresPatchedCore {
+		t.Skip("the patched distribution disables upstream node panel updates")
+	}
 	setupConflictDB(t)
 	useTestRuntimeManager(t)
 	gate := newFanoutGate()

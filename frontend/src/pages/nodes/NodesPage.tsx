@@ -90,14 +90,16 @@ export default function NodesPage() {
     updatePanels,
   } = useNodeMutations();
 
-  const { data: latestVersion = '' } = useQuery({
+  const { data: panelUpdateInfo } = useQuery({
     queryKey: ['server', 'panelUpdateInfo'],
     queryFn: async () => {
       const msg = await HttpUtil.get<PanelUpdateInfo>('/panel/api/server/getPanelUpdateInfo');
-      return msg?.obj?.latestVersion || '';
+      return msg?.obj;
     },
     staleTime: 5 * 60 * 1000,
   });
+  const latestVersion = panelUpdateInfo?.latestVersion || '';
+  const updateSupported = panelUpdateInfo != null && panelUpdateInfo.updateSupported !== false;
 
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<'add' | 'edit'>('add');
@@ -351,6 +353,7 @@ export default function NodesPage() {
                       loading={loading}
                       isMobile={isMobile}
                       latestVersion={latestVersion}
+                      updateSupported={updateSupported}
                       selectedIds={selectedIds}
                       onSelectionChange={setSelectedIds}
                       onAdd={onAdd}

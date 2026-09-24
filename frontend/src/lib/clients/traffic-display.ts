@@ -3,6 +3,8 @@ import { ColorUtils } from '@/utils';
 export interface TrafficDisplayInput {
   up: number;
   down: number;
+  chargeExtraBytes?: number;
+  chargeDiscountBytes?: number;
   total: number;
   enabled: boolean;
   trafficDiff: number;
@@ -25,10 +27,22 @@ const DISABLED_STROKE = {
 
 const UNLIMITED_STROKE = '#722ed1';
 
+export function chargedTrafficBytes(
+  traffic: Partial<
+    Pick<TrafficDisplayInput, 'up' | 'down' | 'chargeExtraBytes' | 'chargeDiscountBytes'>
+  >,
+): number {
+  return Math.max(
+    0,
+    (traffic.up || 0) +
+      (traffic.down || 0) +
+      Math.max(0, traffic.chargeExtraBytes || 0) -
+      Math.max(0, traffic.chargeDiscountBytes || 0),
+  );
+}
+
 export function computeTrafficDisplay(input: TrafficDisplayInput, isDark: boolean): TrafficDisplay {
-  const up = input.up || 0;
-  const down = input.down || 0;
-  const used = up + down;
+  const used = chargedTrafficBytes(input);
   const total = input.total || 0;
   const isUnlimited = total <= 0;
 
@@ -46,7 +60,7 @@ export function computeTrafficDisplay(input: TrafficDisplayInput, isDark: boolea
   } else if (isUnlimited) {
     strokeColor = UNLIMITED_STROKE;
   } else {
-    strokeColor = ColorUtils.clientUsageColor({ up, down, total }, input.trafficDiff);
+    strokeColor = ColorUtils.clientUsageColor({ up: used, down: 0, total }, input.trafficDiff);
   }
 
   return {

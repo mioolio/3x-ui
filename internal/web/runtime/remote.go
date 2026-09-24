@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"github.com/mhsanaei/3x-ui/v3/internal/crypto/nodetoken"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
@@ -736,11 +737,14 @@ func (r *Remote) RestartXray(ctx context.Context) error {
 	return err
 }
 
-// UpdatePanel asks the node to run its own official self-updater (update.sh)
+// UpdatePanel asks the node to run its own self-updater (update.sh)
 // and restart onto the latest release. The node returns as soon as the job is
 // launched; the new version surfaces on the next heartbeat. When dev is true the
 // node is moved to the rolling dev channel instead of the latest stable release.
 func (r *Remote) UpdatePanel(ctx context.Context, dev bool) error {
+	if config.RequiresPatchedCore {
+		return errors.New(config.IncompatibleOfficialUpdate)
+	}
 	var body any
 	if dev {
 		body = url.Values{"dev": {"true"}}

@@ -12,6 +12,7 @@ import {
 import { ClipboardManager, FileManager, HttpUtil, IntlUtil, SizeFormatter } from '@/utils';
 import { formatInboundLabel, formatTunnelConfigMeta } from '@/lib/inbounds/label';
 import { normalizeClientIps, type ClientIpInfo } from '@/lib/clients/ip-log';
+import { chargedTrafficBytes } from '@/lib/clients/traffic-display';
 import { useDatepicker } from '@/hooks/useDatepicker';
 import { useClientHwids } from '@/hooks/useClientHwids';
 import type { ClientRecord, InboundOption } from '@/hooks/useClients';
@@ -162,7 +163,7 @@ export default function ClientInfoModal({
 
   const traffic = client?.traffic || null;
   const totalBytes = client?.totalGB || 0;
-  const used = (traffic?.up || 0) + (traffic?.down || 0);
+  const used = chargedTrafficBytes(traffic || {});
   const remaining = useMemo(() => {
     if (totalBytes <= 0) return -1;
     const r = totalBytes - used;

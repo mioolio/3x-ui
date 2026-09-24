@@ -17,6 +17,7 @@ export interface PanelUpdateInfo {
   currentCommit?: string;
   latestCommit?: string;
   updateAvailable: boolean;
+  updateSupported?: boolean;
 }
 
 interface BusyEvent {
@@ -46,6 +47,7 @@ export default function PanelUpdateModal({
   const [channelBusy, setChannelBusy] = useState(false);
 
   const isDev = info.channel === 'dev';
+  const updateSupported = info.updateSupported !== false;
 
   async function pollUpdateStatus(expectedRunId: string): Promise<UpdateOutcome> {
     await PromiseUtil.sleep(5000);
@@ -128,6 +130,14 @@ export default function PanelUpdateModal({
     <>
       {contextHolder}
       <Modal open={open} title={t('pages.index.updatePanel')} footer={null} onCancel={onClose}>
+        {!updateSupported && (
+          <Alert
+            type="info"
+            className="mb-12"
+            title={t('pages.index.managedUpdateNotice')}
+            showIcon
+          />
+        )}
         {info.updateAvailable && (
           <Alert
             type="warning"
@@ -137,14 +147,16 @@ export default function PanelUpdateModal({
           />
         )}
 
-        <div className="version-list">
-          <div className="version-list-item">
-            <span>{t('pages.index.devChannel')}</span>
-            <Switch checked={!!devChannelEnable} loading={channelBusy} onChange={handleChannel} />
+        {updateSupported && (
+          <div className="version-list">
+            <div className="version-list-item">
+              <span>{t('pages.index.devChannel')}</span>
+              <Switch checked={!!devChannelEnable} loading={channelBusy} onChange={handleChannel} />
+            </div>
           </div>
-        </div>
+        )}
 
-        {devChannelEnable && (
+        {updateSupported && devChannelEnable && (
           <Alert
             type="info"
             className="mb-12"
@@ -166,31 +178,33 @@ export default function PanelUpdateModal({
               </Tag>
             )}
           </div>
-          {info.updateAvailable ? (
+          {updateSupported && info.updateAvailable ? (
             <div className="version-list-item">
               <span>
                 {isDev ? t('pages.index.latestCommit') : t('pages.index.latestPanelVersion')}
               </span>
               <Tag color="purple">{(isDev ? info.latestCommit : info.latestVersion) || '-'}</Tag>
             </div>
-          ) : (
+          ) : updateSupported ? (
             <div className="version-list-item">
               <span>{t('pages.index.panelUpToDate')}</span>
               <Tag color="green">{t('pages.index.panelUpToDate')}</Tag>
             </div>
-          )}
+          ) : null}
         </div>
 
-        <div className="actions-row">
-          <Button
-            type="primary"
-            disabled={!info.updateAvailable}
-            onClick={updatePanel}
-            icon={<CloudDownloadOutlined />}
-          >
-            {t('pages.index.updatePanel')}
-          </Button>
-        </div>
+        {updateSupported && (
+          <div className="actions-row">
+            <Button
+              type="primary"
+              disabled={!info.updateAvailable}
+              onClick={updatePanel}
+              icon={<CloudDownloadOutlined />}
+            >
+              {t('pages.index.updatePanel')}
+            </Button>
+          </div>
+        )}
       </Modal>
     </>
   );

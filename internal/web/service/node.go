@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"github.com/mhsanaei/3x-ui/v3/internal/crypto/nodetoken"
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
@@ -940,10 +941,15 @@ type NodeUpdateResult struct {
 	Error string `json:"error,omitempty"`
 }
 
-// UpdatePanels triggers the official self-updater on each given node. Only
+// UpdatePanels triggers the self-updater on each given node. Only
 // enabled, online nodes are eligible — an offline node can't be reached, so it
 // is reported as skipped rather than silently dropped.
 func (s *NodeService) UpdatePanels(ids []int, dev bool) ([]NodeUpdateResult, error) {
+	if config.RequiresPatchedCore {
+		// Existing nodes may still have an unsafe upstream updater. Never fan
+		// out a request that could strip their patched panel/core binaries.
+		return nil, errors.New(config.IncompatibleOfficialUpdate)
+	}
 	mgr := runtime.GetManager()
 	if mgr == nil {
 		return nil, fmt.Errorf("runtime manager unavailable")

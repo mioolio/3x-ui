@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 import { computeTrafficDisplay } from '@/lib/clients/traffic-display';
+import { ClientTrafficSchema } from '@/schemas/client';
 
 describe('computeTrafficDisplay', () => {
   const gb = 1024 * 1024 * 1024;
@@ -51,5 +52,45 @@ describe('computeTrafficDisplay', () => {
       false,
     );
     expect(d.strokeColor).toBe('#faad14');
+  });
+
+  it('uses billed traffic for the quota while keeping physical directions in the parsed row', () => {
+    const traffic = ClientTrafficSchema.parse({
+      up: 0,
+      down: 20 * 1024 * 1024,
+      chargeExtraBytes: 980 * 1024 * 1024,
+      chargeDiscountBytes: 0,
+    });
+    const d = computeTrafficDisplay(
+      {
+        ...traffic,
+        up: traffic.up || 0,
+        down: traffic.down || 0,
+        total: gb,
+        enabled: true,
+        trafficDiff: 0,
+      },
+      false,
+    );
+    expect(traffic.down).toBe(20 * 1024 * 1024);
+    expect(d.used).toBe(1000 * 1024 * 1024);
+    expect(d.remaining).toBe(24 * 1024 * 1024);
+    expect(d.percent).toBeCloseTo((1000 / 1024) * 100);
+  });
+
+  it('subtracts a discount from billed usage and never shows negative usage', () => {
+    const discounted = computeTrafficDisplay(
+      { up: 20, down: 0, chargeDiscountBytes: 19, total: 10, enabled: true, trafficDiff: 0 },
+      false,
+    );
+    expect(discounted.used).toBe(1);
+    expect(discounted.remaining).toBe(9);
+    expect(discounted.isDepleted).toBe(false);
+
+    const overDiscounted = computeTrafficDisplay(
+      { up: 20, down: 0, chargeDiscountBytes: 30, total: 10, enabled: true, trafficDiff: 0 },
+      false,
+    );
+    expect(overDiscounted.used).toBe(0);
   });
 });

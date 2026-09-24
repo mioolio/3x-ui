@@ -32,6 +32,7 @@ interface NodeListProps {
   loading?: boolean;
   isMobile?: boolean;
   latestVersion?: string;
+  updateSupported?: boolean;
   selectedIds: number[];
   onSelectionChange: (ids: number[]) => void;
   onAdd: () => void;
@@ -168,6 +169,7 @@ export default function NodeList({
   loading = false,
   isMobile = false,
   latestVersion = '',
+  updateSupported = true,
   selectedIds,
   onSelectionChange,
   onAdd,
@@ -268,7 +270,7 @@ export default function NodeList({
                   onClick={() => onProbe(record)}
                 />
               </Tooltip>
-              {isUpdateEligible(record) && (
+              {updateSupported && isUpdateEligible(record) && (
                 <Tooltip title={t('pages.nodes.updatePanel')}>
                   <Button
                     type="text"
@@ -424,6 +426,7 @@ export default function NodeList({
         align: 'center',
         render: (_value, record) => {
           const canUpdate =
+            updateSupported &&
             isUpdateEligible(record) &&
             isPanelUpdateAvailable(latestVersion, record.panelVersion || '');
           return (
@@ -526,6 +529,7 @@ export default function NodeList({
       showAddress,
       relativeTime,
       latestVersion,
+      updateSupported,
       onToggleEnable,
       onProbe,
       onEdit,
@@ -585,7 +589,7 @@ export default function NodeList({
         <Button icon={<SafetyCertificateOutlined />} onClick={onMtls}>
           {t('pages.nodes.mtls.title')}
         </Button>
-        {selectedIds.length > 0 && (
+        {updateSupported && selectedIds.length > 0 && (
           <Button icon={<CloudDownloadOutlined />} onClick={onUpdateSelected}>
             {t('pages.nodes.updateSelected', { count: selectedIds.length })}
           </Button>
@@ -669,7 +673,7 @@ export default function NodeList({
                                 ),
                                 onClick: () => onProbe(record),
                               },
-                              ...(isUpdateEligible(record)
+                              ...(updateSupported && isUpdateEligible(record)
                                 ? [
                                     {
                                       key: 'update',

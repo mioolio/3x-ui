@@ -9,8 +9,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// policyQuotaRule is read by the bundled Xray core. Window quotas count
-// physical bytes; total quotas count physical bytes plus multiplier debits.
+// policyQuotaRule is read by the bundled Xray core. Total and window quotas
+// both count charged bytes after the inbound and overage multipliers.
 type policyQuotaRule struct {
 	Remaining     int64  `json:"remaining"`
 	Epoch         int64  `json:"epoch"`

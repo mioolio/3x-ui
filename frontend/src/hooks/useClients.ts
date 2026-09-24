@@ -787,6 +787,10 @@ export function useClients(options: UseClientsOptions = {}) {
           const merged: ClientTraffic = { ...(row.traffic || {}) };
           if (typeof upd.up === 'number') merged.up = upd.up;
           if (typeof upd.down === 'number') merged.down = upd.down;
+          if (typeof upd.chargeExtraBytes === 'number')
+            merged.chargeExtraBytes = upd.chargeExtraBytes;
+          if (typeof upd.chargeDiscountBytes === 'number')
+            merged.chargeDiscountBytes = upd.chargeDiscountBytes;
           if (typeof upd.total === 'number') merged.total = upd.total;
           if (typeof upd.expiryTime === 'number') merged.expiryTime = upd.expiryTime;
           if (typeof upd.enable === 'boolean') merged.enable = upd.enable;

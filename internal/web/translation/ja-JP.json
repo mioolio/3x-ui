@@ -176,6 +176,7 @@
       "xraySwitch": "バージョン",
       "xrayUpdates": "Xrayの更新",
       "xraySwitchClickDesk": "慎重に選択してください。古いバージョンは現在の設定と互換性がない可能性があります。",
+      "managedUpdateNotice": "This customized build updates the panel and patched Xray core together. Use the matching deployment package.",
       "updatePanel": "パネルを更新",
       "panelUpdateDesc": "これにより3X-UIが最新リリースに更新され、パネルサービスが再起動されます。",
       "currentPanelVersion": "現在のパネルバージョン",

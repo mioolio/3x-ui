@@ -561,6 +561,46 @@ func TestListPagedGlobalTrafficOverlay(t *testing.T) {
 	}
 }
 
+func TestListPagedUsesChargedTrafficForQuotaBuckets(t *testing.T) {
+	svc, inboundSvc, settingSvc := setupPagingServices(t)
+	seedPagingClients(t)
+	db := database.GetDB()
+	if err := db.Model(&xray.ClientTraffic{}).Where("email = ?", "bravo@x").
+		Update("charge_extra_bytes", 9*pagingGB).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&xray.ClientTraffic{}).Where("email = ?", "charlie@x").
+		Update("charge_discount_bytes", 9*pagingGB).Error; err != nil {
+		t.Fatal(err)
+	}
+	page, err := svc.ListPaged(inboundSvc, settingSvc, ClientPageParams{PageSize: 50, Filter: "depleted"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"bravo@x", "delta@x", "foxtrot@x"}
+	if got := pagedEmails(page.Items); !slices.Equal(got, want) {
+		t.Fatalf("depleted by charged usage = %v, want %v", got, want)
+	}
+	if page.Summary.DepletedCount != len(want) {
+		t.Fatalf("depleted count = %d, want %d", page.Summary.DepletedCount, len(want))
+	}
+
+	// A master-provided multiplier debit must affect this page too, even when
+	// its physical counters alone are below the client's total allowance.
+	if err := inboundSvc.AcceptGlobalTraffic("master-guid", []*xray.ClientTraffic{{
+		Email: "charlie@x", Up: pagingGB, ChargeExtraBytes: 9 * pagingGB,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	page, err = svc.ListPaged(inboundSvc, settingSvc, ClientPageParams{PageSize: 50, Filter: "depleted"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := pagedEmails(page.Items); !slices.Contains(got, "charlie@x") {
+		t.Fatalf("global charged traffic did not move charlie into depleted bucket: %v", got)
+	}
+}
+
 func TestClientQueryOnlineEmails(t *testing.T) {
 	_, _, _ = setupPagingServices(t)
 	seedPagingClients(t)

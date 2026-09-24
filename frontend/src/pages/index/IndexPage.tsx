@@ -338,6 +338,7 @@ export default function IndexPage() {
           <VersionModal
             open={versionOpen}
             status={status}
+            updateSupported={panelUpdateInfo.updateSupported !== false}
             onClose={() => setVersionOpen(false)}
             onBusy={setBusy}
           />

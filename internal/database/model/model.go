@@ -1059,11 +1059,16 @@ func (ClientInbound) TableName() string { return "client_inbounds" }
 
 // ClientWindowSample stores one minute of traffic for a client. InboundId 0
 // tracks the client's global quota; positive ids track individual nodes.
+// Bytes remains the physical transfer. ChargedBytes is nullable so existing
+// physical-only samples can age out without being mistaken for charged ones.
+// A negative charged value can correct a discount counter reported one poll
+// after its corresponding physical bytes.
 type ClientWindowSample struct {
-	ClientId    int   `gorm:"primaryKey;column:client_id"`
-	InboundId   int   `gorm:"primaryKey;column:inbound_id"`
-	BucketStart int64 `gorm:"primaryKey;column:bucket_start;index"`
-	Bytes       int64 `gorm:"column:bytes;not null"`
+	ClientId     int    `gorm:"primaryKey;column:client_id"`
+	InboundId    int    `gorm:"primaryKey;column:inbound_id"`
+	BucketStart  int64  `gorm:"primaryKey;column:bucket_start;index"`
+	Bytes        int64  `gorm:"column:bytes;not null"`
+	ChargedBytes *int64 `gorm:"column:charged_bytes"`
 }
 
 func (ClientWindowSample) TableName() string { return "client_window_samples" }

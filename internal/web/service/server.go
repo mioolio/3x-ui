@@ -276,6 +276,10 @@ func (s *ServerService) RefreshStatus() *Status {
 // blank during a GitHub API hiccup; if there's no cache at all the underlying
 // error is surfaced.
 func (s *ServerService) GetXrayVersionsCached() ([]string, error) {
+	if config.RequiresPatchedCore {
+		// The upstream list contains only cores without the panel policy patch.
+		return []string{}, nil
+	}
 	s.versionsCacheMu.Lock()
 	cache := s.versionsCache
 	s.versionsCacheMu.Unlock()
@@ -1025,6 +1029,10 @@ func parseXrayDigestSHA256(dgst []byte) (string, error) {
 }
 
 func (s *ServerService) UpdateXray(version string) error {
+	if config.RequiresPatchedCore {
+		// Refuse before fetching releases or stopping the running patched core.
+		return errors.New(config.IncompatibleOfficialUpdate)
+	}
 	versions, err := s.GetXrayVersions()
 	if err != nil {
 		return err

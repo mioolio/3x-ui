@@ -56,6 +56,7 @@ import { activateOnKey } from '@/utils/a11y';
 
 import { useTheme } from '@/hooks/useTheme';
 import { formatInboundLabel } from '@/lib/inbounds/label';
+import { chargedTrafficBytes } from '@/lib/clients/traffic-display';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useClients } from '@/hooks/useClients';
@@ -577,7 +578,7 @@ export default function ClientsPage() {
     (row: ClientRecord | null | undefined): Bucket | null => {
       if (!row) return null;
       const traffic = row.traffic || {};
-      const used = (traffic.up || 0) + (traffic.down || 0);
+      const used = chargedTrafficBytes(traffic);
       const total = row.totalGB || 0;
       const now = Date.now();
       const expired = (row.expiryTime ?? 0) > 0 && (row.expiryTime ?? 0) <= now;
@@ -619,7 +620,7 @@ export default function ClientsPage() {
   function remainingLabel(row: ClientRecord) {
     const total = row.totalGB || 0;
     if (total <= 0) return '∞';
-    const used = (row.traffic?.up || 0) + (row.traffic?.down || 0);
+    const used = chargedTrafficBytes(row.traffic || {});
     const r = total - used;
     return r > 0 ? SizeFormatter.sizeFormat(r) : '0';
   }
@@ -627,7 +628,7 @@ export default function ClientsPage() {
   function remainingColor(row: ClientRecord): string {
     const total = row.totalGB || 0;
     if (total <= 0) return 'purple';
-    const used = (row.traffic?.up || 0) + (row.traffic?.down || 0);
+    const used = chargedTrafficBytes(row.traffic || {});
     const ratio = used / total;
     if (ratio >= 1) return 'red';
     if (ratio >= 0.85) return 'orange';
@@ -1169,6 +1170,8 @@ export default function ClientsPage() {
           <ClientTrafficCell
             up={record.traffic?.up}
             down={record.traffic?.down}
+            chargeExtraBytes={record.traffic?.chargeExtraBytes}
+            chargeDiscountBytes={record.traffic?.chargeDiscountBytes}
             total={record.totalGB}
             enabled={record.enable}
             trafficDiff={trafficDiff}
@@ -1847,6 +1850,8 @@ export default function ClientsPage() {
                                     compact
                                     up={row.traffic?.up}
                                     down={row.traffic?.down}
+                                    chargeExtraBytes={row.traffic?.chargeExtraBytes}
+                                    chargeDiscountBytes={row.traffic?.chargeDiscountBytes}
                                     total={row.totalGB}
                                     enabled={row.enable}
                                     trafficDiff={trafficDiff}
