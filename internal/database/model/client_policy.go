@@ -20,6 +20,10 @@ type ClientPolicyPatch struct {
 
 const DefaultOverageMultiplierBps = 10000
 
+// JSON clients represent multiplier basis points as JavaScript numbers. Keep
+// the same exact round-trip bound as an inbound multiplier.
+const MaxOverageMultiplierBps = MaxTrafficMultiplierBps
+
 func EffectiveOverageMultiplierBps(value int) int {
 	if value <= 0 {
 		return DefaultOverageMultiplierBps

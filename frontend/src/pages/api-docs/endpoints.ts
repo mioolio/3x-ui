@@ -1196,7 +1196,7 @@ export const sections: readonly Section[] = [
         summary:
           'Set per-inbound window quotas and optional exhaustion policies. Zero quotaBytes disables that inbound quota.',
         description:
-          '`windowExhaustAction` is `stop` by default or `throttle`. Throttle requires positive upload and download Kbps. `windowOverageMultiplierBps` is 10000 for 1×, up to 1000000 for 100×; it deducts traffic allowance, not money. Omitted policy fields retain the current settings.',
+          '`windowExhaustAction` is `stop` by default or `throttle`. Throttle requires positive upload and download Kbps. `windowOverageMultiplierBps` is 10000 for 1×; the maximum exactly representable JSON value is 9007199254740991. It changes traffic accounting. Omitted policy fields retain the current settings.',
         params: [{ name: 'email', in: 'path', type: 'string', desc: 'Client email.' }],
         body: '{\n  "quotas": { "3": { "quotaBytes": 10737418240, "hours": 2, "mode": "fixed", "windowExhaustAction": "throttle", "windowExhaustUpKbps": 512, "windowExhaustDownKbps": 2048, "windowOverageMultiplierBps": 20000 } }\n}',
         response: '{\n  "success": true\n}',

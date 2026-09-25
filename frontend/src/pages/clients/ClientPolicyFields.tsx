@@ -4,6 +4,11 @@ import { useFormContext, useWatch } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
 import { FormField } from '@/components/form/rhf';
+import {
+  MAX_TRAFFIC_MULTIPLIER_INPUT,
+  trafficMultiplierBpsToInput,
+  trafficMultiplierInputToBps,
+} from '@/lib/xray/traffic-multiplier';
 
 type ExhaustScope = 'total' | 'window';
 type SpeedDirection = 'Up' | 'Down';
@@ -113,15 +118,16 @@ function ExhaustPolicy({ scope }: { scope: ExhaustScope }) {
             label={t('pages.clients.policy.multiplier')}
             extra={t('pages.clients.policy.multiplierHint')}
             transform={{
-              input: (v) => (Number(v) || 10_000) / 10_000,
-              output: (v) => Math.round((Number(v) || 1) * 10_000),
+              input: trafficMultiplierBpsToInput,
+              output: trafficMultiplierInputToBps,
             }}
           >
-            <InputNumber
-              min={1}
-              max={100}
-              step={0.01}
-              precision={2}
+            <InputNumber<string>
+              stringMode
+              min="1"
+              max={MAX_TRAFFIC_MULTIPLIER_INPUT}
+              step="0.01"
+              precision={4}
               addonAfter="×"
               style={{ width: '100%' }}
             />

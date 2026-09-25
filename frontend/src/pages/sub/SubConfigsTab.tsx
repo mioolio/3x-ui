@@ -47,10 +47,22 @@ export default function SubConfigsTab({ links, nodes, lang, now, onCopy }: SubCo
                       </span>
                     )}
                   </div>
-                  {node.trafficMultiplierBps !== 10_000 && (
-                    <Tag className="sub-multiplier-tag" title={t('subscription.trafficFactor')}>
-                      {formatTrafficMultiplier(node.trafficMultiplierBps, lang)}
-                    </Tag>
+                  {(node.trafficMultiplierBps !== 10_000 || !!node.activeMultiplierBps) && (
+                    <div className="sub-multiplier-tags">
+                      <Tag className="sub-multiplier-tag" title={t('subscription.trafficFactor')}>
+                        {formatTrafficMultiplier(node.trafficMultiplierBps, lang)}
+                      </Tag>
+                      {node.activeMultiplierBps &&
+                        node.activeMultiplierBps > node.trafficMultiplierBps && (
+                          <Tag
+                            className="sub-multiplier-tag is-active-overage"
+                            title={t('subscription.activeOverageFactor')}
+                            aria-label={`${t('subscription.activeOverageFactor')}: ${formatTrafficMultiplier(node.activeMultiplierBps, lang)}`}
+                          >
+                            {formatTrafficMultiplier(node.activeMultiplierBps, lang)}
+                          </Tag>
+                        )}
+                    </div>
                   )}
                 </div>
                 <dl className="sub-node-speeds">

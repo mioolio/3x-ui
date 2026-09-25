@@ -105,8 +105,24 @@ export function formatMaximumKbps(kbps: number, lang: string): string {
 }
 
 export function formatTrafficMultiplier(bps: number, lang: string): string {
-  const factor = (Number.isFinite(bps) && bps > 0 ? bps : 10_000) / 10_000;
-  return `${new Intl.NumberFormat(lang, { maximumFractionDigits: 2 }).format(factor)}x`;
+  const exactBps = Number.isSafeInteger(bps) && bps > 0 ? bps : 10_000;
+  const whole = Math.trunc(exactBps / 10_000);
+  const fraction = exactBps % 10_000;
+  const wholeText = new Intl.NumberFormat(lang, { maximumFractionDigits: 0 }).format(whole);
+  if (fraction === 0) return `${wholeText}x`;
+
+  // Show every configured basis point. Rounding to two decimals can make the
+  // active overage badge look identical to the base factor while billing more.
+  const digits = String(fraction).padStart(4, '0').replace(/0+$/, '');
+  const fractionText = new Intl.NumberFormat(lang, {
+    useGrouping: false,
+    minimumIntegerDigits: digits.length,
+    maximumFractionDigits: 0,
+  }).format(Number(digits));
+  const decimal =
+    new Intl.NumberFormat(lang).formatToParts(1.1).find((part) => part.type === 'decimal')?.value ??
+    '.';
+  return `${wholeText}${decimal}${fractionText}x`;
 }
 
 export type AppPlatform = 'android' | 'ios';

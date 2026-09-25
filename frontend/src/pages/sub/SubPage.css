@@ -725,6 +725,15 @@ a.sub-row-title:hover {
   background: var(--sub-card-bg);
 }
 
+.sub-window-card.is-exhausted {
+  border-color: var(--ant-color-error-border);
+}
+
+.sub-window-card.is-exhausted .sub-window-balance,
+.sub-window-card.is-exhausted .sub-window-percent {
+  color: var(--ant-color-error);
+}
+
 .sub-window-ring {
   flex: none;
 }
@@ -843,6 +852,20 @@ a.sub-row-title:hover {
   color: var(--sub-accent);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+}
+
+.sub-multiplier-tags {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.sub-multiplier-tag.is-active-overage {
+  border-color: var(--ant-color-error-border);
+  background: var(--ant-color-error-bg);
+  color: var(--ant-color-error);
 }
 
 .sub-node-speeds {

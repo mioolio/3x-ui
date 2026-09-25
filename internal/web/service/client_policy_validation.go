@@ -7,7 +7,6 @@ import (
 )
 
 const maxPolicyRateKbps int64 = 1_000_000_000
-const maxOverageMultiplierBps = 1_000_000
 
 func policyInputValue[T any](input *T, current T) T {
 	if input != nil {
@@ -82,8 +81,8 @@ func validateClientPolicy(input model.Client, existing *model.ClientRecord) erro
 		{"totalOverageMultiplierBps", policyInputValue(input.TotalOverageMultiplierBps, model.EffectiveOverageMultiplierBps(old.TotalOverageMultiplierBps))},
 		{"windowOverageMultiplierBps", policyInputValue(input.WindowOverageMultiplierBps, model.EffectiveOverageMultiplierBps(old.WindowOverageMultiplierBps))},
 	} {
-		if multiplier.value < model.DefaultOverageMultiplierBps || multiplier.value > maxOverageMultiplierBps {
-			return fmt.Errorf("%s must be between 10000 and %d", multiplier.name, maxOverageMultiplierBps)
+		if multiplier.value < model.DefaultOverageMultiplierBps || multiplier.value > model.MaxOverageMultiplierBps {
+			return fmt.Errorf("%s must be between 10000 and %d", multiplier.name, model.MaxOverageMultiplierBps)
 		}
 	}
 	graceHours := policyInputValue(input.GraceHours, old.GraceHours)

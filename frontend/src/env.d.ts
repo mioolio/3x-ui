@@ -46,6 +46,7 @@ interface SubNodeOverview {
   maxUpKbps: number;
   maxDownKbps: number;
   trafficMultiplierBps: number;
+  activeMultiplierBps?: number;
   usageTracked?: boolean;
   windowConfigured?: boolean;
   window?: SubWindowStatus | null;

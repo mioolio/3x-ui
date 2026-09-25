@@ -361,5 +361,9 @@ describe('InboundFormModal', () => {
         expect.objectContaining({ enable: false, port: 41234, protocol: 'vless' }),
       );
     });
+    const inboundSave = post.mock.calls.find(([path]) => path === '/panel/api/inbounds/update/42');
+    const payload = inboundSave?.[1] as Record<string, unknown> | undefined;
+    const settings = JSON.parse(String(payload?.settings));
+    expect(settings).not.toHaveProperty('clients');
   });
 });

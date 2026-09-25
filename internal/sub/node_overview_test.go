@@ -36,7 +36,7 @@ func TestNodeOverviewUsesLowestDirectionalMaximumAndPublicWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	window := service.WindowStatus{QuotaBytes: 10 << 30, UsedBytes: 4 << 30, RemainingBytes: 6 << 30, WindowHours: 2, WindowMode: "fixed", ResetAt: 1_700_000_000_000}
-	nodes := (&SubService{}).loadNodeOverview("overview", []NodeWindowQuota{{ClientId: client.Id, InboundId: inbound.Id, WindowStatus: window}})
+	nodes := (&SubService{}).loadNodeOverview("overview", []NodeWindowQuota{{ClientId: client.Id, InboundId: inbound.Id, WindowStatus: window}}, nil)
 	if len(nodes) != 1 {
 		t.Fatalf("nodes=%d, want 1", len(nodes))
 	}
@@ -53,9 +53,80 @@ func TestNodeOverviewUsesLowestDirectionalMaximumAndPublicWindow(t *testing.T) {
 	if err := db.Model(&inbound).Update("traffic_multiplier_bps", 100).Error; err != nil {
 		t.Fatal(err)
 	}
-	nodes = (&SubService{}).loadNodeOverview("overview", nil)
+	nodes = (&SubService{}).loadNodeOverview("overview", nil, nil)
 	if len(nodes) != 1 || nodes[0].TrafficMultiplierBps != 100 {
 		t.Fatalf("discount node terms=%+v, want 0.01x", nodes)
+	}
+}
+
+func TestActiveNodeMultiplierOnlyExposesBillableOverage(t *testing.T) {
+	account := &SubPolicyStatus{EffectiveState: "throttled", WindowExhausted: true, WindowAction: "throttle", WindowMultiplierBps: 3_700_000}
+	link := &NodeWindowQuota{Action: "throttle", MultiplierBps: 4_000_000, WindowStatus: service.WindowStatus{QuotaBytes: 1000, RemainingBytes: 0}}
+	for _, tc := range []struct {
+		name       string
+		base       int
+		account    *SubPolicyStatus
+		link       *NodeWindowQuota
+		configured bool
+		want       int
+	}{
+		{"global window exhausted", 500_000, account, nil, false, 3_700_000},
+		{"link window takes maximum", 500_000, account, link, true, 4_000_000},
+		{"larger base remains effective", 5_000_000, account, link, true, 0},
+		{"link status unavailable", 500_000, account, nil, true, 0},
+		{"link stopped", 500_000, account, &NodeWindowQuota{Action: "stop", WindowStatus: service.WindowStatus{QuotaBytes: 1000}}, true, 0},
+		{"account blocked", 500_000, &SubPolicyStatus{EffectiveState: "blocked", WindowExhausted: true, WindowAction: "throttle", WindowMultiplierBps: 3_700_000}, nil, false, 0},
+		{"no exhaustion", 500_000, &SubPolicyStatus{EffectiveState: "active", WindowAction: "throttle", WindowMultiplierBps: 3_700_000}, nil, false, 0},
+		{"link under allowance", 500_000, &SubPolicyStatus{EffectiveState: "active"}, &NodeWindowQuota{Action: "throttle", MultiplierBps: 4_000_000, WindowStatus: service.WindowStatus{QuotaBytes: 1000, RemainingBytes: 1}}, true, 0},
+		{"total exhaustion", 500_000, &SubPolicyStatus{EffectiveState: "throttled", TotalExhausted: true, TotalAction: "throttle", TotalMultiplierBps: 3_700_000}, nil, false, 3_700_000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := activeNodeMultiplierBps(tc.base, tc.account, tc.link, tc.configured); got != tc.want {
+				t.Fatalf("active factor=%d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestNodeOverviewPublishesActiveWindowMultiplierOnly(t *testing.T) {
+	initSubDB(t)
+	db := database.GetDB()
+	client := model.ClientRecord{Email: "active-factor@example.com", SubID: "active-factor", Enable: true,
+		WindowQuotaBytes: 1000, WindowHours: 2, WindowMode: "fixed", WindowExhaustAction: "throttle", WindowOverageMultiplierBps: 3_700_000}
+	inbound := model.Inbound{Tag: "active-factor", Protocol: model.VLESS, Enable: true, TrafficMultiplierBps: 500_000}
+	if err := db.Create(&client).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&inbound).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.ClientInbound{ClientId: client.Id, InboundId: inbound.Id}).Error; err != nil {
+		t.Fatal(err)
+	}
+	window := service.WindowStatus{QuotaBytes: 1000, RemainingBytes: 0, UsedBytes: 1000}
+	nodes := (&SubService{}).loadNodeOverview(client.SubID, nil, []AccountWindowQuota{{AccountIndex: 1, Window: window}})
+	if len(nodes) != 1 || nodes[0].TrafficMultiplierBps != 500_000 || nodes[0].ActiveMultiplierBps != 3_700_000 {
+		t.Fatalf("active global window factor=%+v", nodes)
+	}
+	window.RemainingBytes = 1
+	nodes = (&SubService{}).loadNodeOverview(client.SubID, nil, []AccountWindowQuota{{AccountIndex: 1, Window: window}})
+	if len(nodes) != 1 || nodes[0].ActiveMultiplierBps != 0 {
+		t.Fatalf("window not exhausted=%+v", nodes)
+	}
+	if err := db.Model(&model.ClientInbound{}).Where("client_id = ? AND inbound_id = ?", client.Id, inbound.Id).
+		Updates(map[string]any{"window_quota_bytes": 1000, "window_hours": 2, "window_mode": "fixed"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	linkWindow := NodeWindowQuota{ClientId: client.Id, InboundId: inbound.Id, Action: "throttle", MultiplierBps: 4_000_000,
+		WindowStatus: service.WindowStatus{QuotaBytes: 1000, RemainingBytes: 0, UsedBytes: 1000}}
+	nodes = (&SubService{}).loadNodeOverview(client.SubID, []NodeWindowQuota{linkWindow}, []AccountWindowQuota{{AccountIndex: 1, Window: window}})
+	if len(nodes) != 1 || nodes[0].ActiveMultiplierBps != 4_000_000 {
+		t.Fatalf("active link factor=%+v", nodes)
+	}
+	linkWindow.Action = "stop"
+	nodes = (&SubService{}).loadNodeOverview(client.SubID, []NodeWindowQuota{linkWindow}, []AccountWindowQuota{{AccountIndex: 1, Window: window}})
+	if len(nodes) != 1 || nodes[0].ActiveMultiplierBps != 0 {
+		t.Fatalf("stopped link must not advertise overage=%+v", nodes)
 	}
 }
 
@@ -102,7 +173,7 @@ func TestSharedSubscriptionKeepsEachClientNodeAndWindowSeparate(t *testing.T) {
 		nodeWindows[1].ClientId != clients[1].Id || nodeWindows[1].RemainingBytes != 700 {
 		t.Fatalf("node windows collapsed across accounts: %+v", nodeWindows)
 	}
-	nodes := (&SubService{}).loadNodeOverview("shared", nodeWindows)
+	nodes := (&SubService{}).loadNodeOverview("shared", nodeWindows, accountWindows)
 	if len(nodes) != 2 || nodes[0].AccountIndex != 1 || nodes[0].MaxUpKbps != 10_000 || nodes[0].Window == nil || nodes[0].Window.RemainingBytes != 450 ||
 		nodes[1].AccountIndex != 2 || nodes[1].MaxUpKbps != 20_000 || nodes[1].Window == nil || nodes[1].Window.RemainingBytes != 700 {
 		t.Fatalf("node details collapsed across accounts: %+v", nodes)
@@ -110,7 +181,7 @@ func TestSharedSubscriptionKeepsEachClientNodeAndWindowSeparate(t *testing.T) {
 	if !nodes[0].WindowConfigured || !nodes[1].WindowConfigured {
 		t.Fatalf("configured per-node windows must be marked: %+v", nodes)
 	}
-	withoutRemoteStatus := (&SubService{}).loadNodeOverview("shared", nil)
+	withoutRemoteStatus := (&SubService{}).loadNodeOverview("shared", nil, accountWindows)
 	if len(withoutRemoteStatus) != 2 || !withoutRemoteStatus[0].WindowConfigured || withoutRemoteStatus[0].Window != nil {
 		t.Fatalf("missing remote status must not look like shared allowance: %+v", withoutRemoteStatus)
 	}
@@ -130,7 +201,7 @@ func TestTUICNodeOverviewDoesNotAdvertiseUnsupportedMultiplier(t *testing.T) {
 	if err := db.Create(&model.ClientInbound{ClientId: client.Id, InboundId: inbound.Id, WindowQuotaBytes: 500, WindowHours: 2, SpeedLimitKbps: 2000}).Error; err != nil {
 		t.Fatal(err)
 	}
-	nodes := (&SubService{}).loadNodeOverview(client.SubID, nil)
+	nodes := (&SubService{}).loadNodeOverview(client.SubID, nil, nil)
 	if len(nodes) != 1 || nodes[0].TrafficMultiplierBps != model.DefaultTrafficMultiplierBps || nodes[0].UsageTracked || nodes[0].WindowConfigured || nodes[0].Window != nil {
 		t.Fatalf("TUIC must not promise unimplemented usage/multiplier: %+v", nodes)
 	}

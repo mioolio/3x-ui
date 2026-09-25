@@ -62,14 +62,14 @@ export default function SubHero({
   const hasQuota = totalByte > 0;
   const healthy = status === 'active' || status === 'unlimited' || status === 'mixed';
   const pct = usagePercent(usedByte, totalByte);
+  const quotaExhausted = hasQuota && usedByte >= totalByte;
+  const warningStatus = status === 'grace' || status === 'throttled' || status === 'mixed';
   const ringColor =
-    status === 'grace' || status === 'throttled' || status === 'mixed'
-      ? token.colorWarning
-      : !healthy || pct >= 90
-        ? token.colorError
-        : pct >= 75
-          ? token.colorWarning
-          : token.colorPrimary;
+    quotaExhausted || !healthy || pct >= 90
+      ? token.colorError
+      : warningStatus || pct >= 75
+        ? token.colorWarning
+        : token.colorPrimary;
   const [amount, unit] = splitSize(hasQuota ? remained : used);
   const formatDate = (ms: number) => IntlUtil.formatDate(ms, datepicker, lang);
   const statusTag = STATUS_TAGS[status];
@@ -97,7 +97,7 @@ export default function SubHero({
   ];
 
   return (
-    <section className={healthy ? 'sub-hero' : 'sub-hero is-alert'}>
+    <section className={healthy && !quotaExhausted ? 'sub-hero' : 'sub-hero is-alert'}>
       <Progress
         type="circle"
         className="sub-ring"

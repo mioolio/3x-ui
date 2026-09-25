@@ -1,6 +1,9 @@
 package stats
 
-import "sync/atomic"
+import (
+	"math"
+	"sync/atomic"
+)
 
 // Counter is an implementation of stats.Counter.
 type Counter struct {
@@ -19,5 +22,16 @@ func (c *Counter) Set(newValue int64) int64 {
 
 // Add implements stats.Counter.
 func (c *Counter) Add(delta int64) int64 {
-	return atomic.AddInt64(&c.value, delta)
+	for {
+		old := atomic.LoadInt64(&c.value)
+		next := old + delta
+		if delta > 0 && old > math.MaxInt64-delta {
+			next = math.MaxInt64
+		} else if delta < 0 && old < math.MinInt64-delta {
+			next = math.MinInt64
+		}
+		if atomic.CompareAndSwapInt64(&c.value, old, next) {
+			return next
+		}
+	}
 }

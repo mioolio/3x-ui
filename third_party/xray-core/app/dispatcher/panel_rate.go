@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"math"
+	"math/bits"
 	"net/url"
 	"os"
 	"strings"
@@ -168,11 +169,10 @@ func panelGraceRate(rule panelGrace, direction string) int64 {
 }
 
 func panelMultiplier(value int64) int64 {
-	if value < 10_000 {
+	if value < 10_000 || value > 9_007_199_254_740_991 {
 		return 10_000
 	}
-	// A malformed policy cannot overflow byte accounting for a buffer.
-	return min(value, 1_000_000_000)
+	return value
 }
 
 func panelInboundMultiplier(policy panelRatePolicy, pair string) int64 {
@@ -244,31 +244,43 @@ func panelBillableBytesAtFactor(bytes, totalLeft, fraction, inboundFactor int64,
 		if step <= 0 {
 			step = 1
 		}
-		if step > (math.MaxInt64-fraction)/factor {
+		// Divide the full product so a large factor does not overflow before
+		// its billed-byte quotient is calculated.
+		hi, lo := bits.Mul64(uint64(step), uint64(factor))
+		lo, carry := bits.Add64(lo, uint64(fraction), 0)
+		hi += carry
+		if hi >= 10_000 {
 			return math.MaxInt64, 0
 		}
-		numerator := fraction + step*factor
-		increment := numerator / 10_000
-		fraction = numerator % 10_000
-		if billed > math.MaxInt64-increment {
+		increment, remainder := bits.Div64(hi, lo, 10_000)
+		if increment > uint64(math.MaxInt64-billed) {
 			return math.MaxInt64, 0
 		}
-		billed += increment
+		fraction = int64(remainder)
+		billed += int64(increment)
 		position += step
 	}
 	return billed, fraction
 }
 
 func panelBytesToQuotaBoundary(remaining, fraction, factor int64) int64 {
-	if remaining > (math.MaxInt64-fraction)/10_000 {
+	if remaining <= 0 {
+		return 0
+	}
+	hi, lo := bits.Mul64(uint64(remaining), 10_000)
+	lo, borrow := bits.Sub64(lo, uint64(fraction), 0)
+	hi -= borrow
+	if hi >= uint64(factor) {
 		return math.MaxInt64
 	}
-	numerator := remaining*10_000 - fraction
-	threshold := numerator / factor
-	if numerator%factor != 0 {
+	threshold, remainder := bits.Div64(hi, lo, uint64(factor))
+	if threshold >= math.MaxInt64 {
+		return math.MaxInt64
+	}
+	if remainder != 0 {
 		threshold++
 	}
-	return threshold
+	return int64(threshold)
 }
 
 // Reserve quotas under one lock before a buffer is forwarded. Missing new

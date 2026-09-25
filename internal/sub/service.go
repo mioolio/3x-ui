@@ -3083,6 +3083,7 @@ type NodeOverview struct {
 	MaxUpKbps            int64                 `json:"maxUpKbps"`
 	MaxDownKbps          int64                 `json:"maxDownKbps"`
 	TrafficMultiplierBps int                   `json:"trafficMultiplierBps"`
+	ActiveMultiplierBps  int                   `json:"activeMultiplierBps,omitempty"`
 	UsageTracked         bool                  `json:"usageTracked"`
 	WindowConfigured     bool                  `json:"windowConfigured"`
 	Window               *service.WindowStatus `json:"window,omitempty"`
@@ -3115,7 +3116,32 @@ func displayMinPositive(rates ...int64) int64 {
 	return out
 }
 
-func (s *SubService) loadNodeOverview(subID string, windows []NodeWindowQuota) []NodeOverview {
+// The core bills at the greatest currently active factor. Reveal only that
+// effective factor to a subscriber, never the configured policy or its action.
+func activeNodeMultiplierBps(base int, account *SubPolicyStatus, nodeWindow *NodeWindowQuota, windowConfigured bool) int {
+	if account == nil || account.EffectiveState == "blocked" || (windowConfigured && (nodeWindow == nil || nodeWindow.QuotaBytes <= 0)) {
+		return 0
+	}
+	if nodeWindow != nil && nodeWindow.RemainingBytes <= 0 && nodeWindow.Action != "throttle" {
+		return 0
+	}
+	factor := base
+	if account.TotalExhausted && account.TotalAction == "throttle" {
+		factor = max(factor, account.TotalMultiplierBps)
+	}
+	if account.WindowExhausted && account.WindowAction == "throttle" {
+		factor = max(factor, account.WindowMultiplierBps)
+	}
+	if nodeWindow != nil && nodeWindow.QuotaBytes > 0 && nodeWindow.RemainingBytes <= 0 && nodeWindow.Action == "throttle" {
+		factor = max(factor, nodeWindow.MultiplierBps)
+	}
+	if factor <= base {
+		return 0
+	}
+	return factor
+}
+
+func (s *SubService) loadNodeOverview(subID string, windows []NodeWindowQuota, accountWindows []AccountWindowQuota) []NodeOverview {
 	db := database.GetDB()
 	if db == nil || subID == "" {
 		return nil
@@ -3140,10 +3166,31 @@ func (s *SubService) loadNodeOverview(subID string, windows []NodeWindowQuota) [
 	for _, link := range links {
 		linkByClientInbound[linkKey{link.ClientId, link.InboundId}] = link
 	}
-	windowByClientInbound := make(map[linkKey]*service.WindowStatus, len(windows))
+	windowByClientInbound := make(map[linkKey]*NodeWindowQuota, len(windows))
 	for _, window := range windows {
-		status := window.WindowStatus
+		status := window
 		windowByClientInbound[linkKey{window.ClientId, window.InboundId}] = &status
+	}
+	windowByAccount := make(map[int]*service.WindowStatus, len(accountWindows))
+	for _, entry := range accountWindows {
+		status := entry.Window
+		windowByAccount[entry.AccountIndex] = &status
+	}
+	emails := make([]string, 0, len(clients))
+	for _, client := range clients {
+		emails = append(emails, client.Email)
+	}
+	var trafficRows []xray.ClientTraffic
+	if err := db.Where("email IN ?", emails).Find(&trafficRows).Error; err != nil {
+		return nil
+	}
+	trafficByEmail := make(map[string]xray.ClientTraffic, len(trafficRows))
+	for _, row := range trafficRows {
+		trafficByEmail[row.Email] = row
+	}
+	accountByClientID := make(map[int]*SubPolicyStatus, len(clients))
+	for i, client := range clients {
+		accountByClientID[client.Id] = clientPolicyStatus(client, trafficByEmail[client.Email], windowByAccount[i+1])
 	}
 	out := make([]NodeOverview, 0, len(clients)*len(inbounds))
 	for _, inbound := range inbounds {
@@ -3163,6 +3210,16 @@ func (s *SubService) loadNodeOverview(subID string, windows []NodeWindowQuota) [
 			if !usageTracked {
 				window = nil
 			}
+			var windowStatus *service.WindowStatus
+			if window != nil {
+				windowStatus = &window.WindowStatus
+			}
+			accountWindow := windowByAccount[clientIndex+1]
+			account := accountByClientID[client.Id]
+			activeFactor := 0
+			if usageTracked && (client.WindowQuotaBytes <= 0 || accountWindow != nil) {
+				activeFactor = activeNodeMultiplierBps(factor, account, window, link.WindowQuotaBytes > 0 && link.WindowHours > 0)
+			}
 			maxUp := displayMinPositive(displayDirectionalRate(client.SpeedLimitKbps, client.SpeedLimitUpKbps), displayDirectionalRate(link.SpeedLimitKbps, link.SpeedLimitUpKbps), displayDirectionalRate(inbound.SpeedLimitKbps, inbound.SpeedLimitUpKbps))
 			maxDown := displayMinPositive(displayDirectionalRate(client.SpeedLimitKbps, client.SpeedLimitDownKbps), displayDirectionalRate(link.SpeedLimitKbps, link.SpeedLimitDownKbps), displayDirectionalRate(inbound.SpeedLimitKbps, inbound.SpeedLimitDownKbps))
 			if !usageTracked {
@@ -3178,9 +3235,10 @@ func (s *SubService) loadNodeOverview(subID string, windows []NodeWindowQuota) [
 				MaxUpKbps:            maxUp,
 				MaxDownKbps:          maxDown,
 				TrafficMultiplierBps: factor,
+				ActiveMultiplierBps:  activeFactor,
 				UsageTracked:         usageTracked,
 				WindowConfigured:     usageTracked && link.WindowQuotaBytes > 0 && link.WindowHours > 0,
-				Window:               window,
+				Window:               windowStatus,
 			})
 		}
 	}
@@ -3491,7 +3549,7 @@ func (s *SubService) BuildPageData(subId string, hostHeader string, traffic xray
 		WindowQuota:    windowQuota,
 		WindowQuotas:   accountWindows,
 		AccountStates:  accountStates,
-		Nodes:          s.loadNodeOverview(subId, nodeWindows),
+		Nodes:          s.loadNodeOverview(subId, nodeWindows, accountWindows),
 		PublicState:    publicState,
 	}
 }

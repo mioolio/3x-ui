@@ -366,9 +366,17 @@ export function dropLegacyOptionalEmpties(
   }
 }
 
-export function formValuesToWirePayload(values: InboundFormValues): WireInboundPayload {
+export function formValuesToWirePayload(
+  values: InboundFormValues,
+  options: { omitClients?: boolean } = {},
+): WireInboundPayload {
   const settingsPruned = (pruneEmpty(values.settings ?? {}) ?? {}) as Record<string, unknown>;
-  if (Array.isArray(settingsPruned.clients)) {
+  if (options.omitClients) {
+    // The inbound editor has no client controls. Let the server resolve the
+    // current linked clients in the same transaction as the inbound update;
+    // an old form snapshot must not overwrite a newer client quota or link.
+    delete settingsPruned.clients;
+  } else if (Array.isArray(settingsPruned.clients)) {
     settingsPruned.clients = normalizeClients(values.protocol, settingsPruned.clients);
   }
   let streamPruned = values.streamSettings

@@ -590,13 +590,8 @@ export default function InboundFormModal({
   }, [open, protocol]);
 
   const saveValues = async () => {
-    /*
-     * getValues() returns the entire form store, including settings.clients and
-     * settings.fallbacks which have no bound field (clients are managed via the
-     * standalone Client modal, not this inbound modal). With shouldUnregister
-     * false those pass-through sub-trees survive from the reset object, so the
-     * update wire payload never silently drops every client on save.
-     */
+    // This editor owns inbound settings, not client membership or quotas.
+    // The backend fills the current linked clients when an edit omits them.
     const values = methods.getValues() as InboundFormValues;
     const parsed = InboundFormSchema.safeParse(values);
     if (!parsed.success) {
@@ -611,7 +606,7 @@ export default function InboundFormModal({
     }
     setSaving(true);
     try {
-      const payload = formValuesToWirePayload(parsed.data);
+      const payload = formValuesToWirePayload(parsed.data, { omitClients: mode === 'edit' });
       const url =
         mode === 'edit' && dbInbound
           ? `/panel/api/inbounds/update/${dbInbound.id}`

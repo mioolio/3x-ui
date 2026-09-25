@@ -33,6 +33,9 @@ describe('subscriber display values', () => {
     expect(formatMaximumKbps(10_000, 'en-US')).toBe('10 Mbps');
     expect(formatTrafficMultiplier(100, 'en-US')).toBe('0.01x');
     expect(formatTrafficMultiplier(20_000, 'en-US')).toBe('2x');
+    expect(formatTrafficMultiplier(500_001, 'en-US')).toBe('50.0001x');
+    expect(formatTrafficMultiplier(500_001, 'de-DE')).toBe('50,0001x');
+    expect(formatTrafficMultiplier(Number.MAX_SAFE_INTEGER, 'en-US')).toBe('900,719,925,474.0991x');
   });
 
   it('refreshes a long-open snapshot only when a deadline or window reset is crossed', () => {

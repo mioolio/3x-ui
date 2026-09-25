@@ -132,7 +132,7 @@ func (s *ClientService) SetInboundLinkPolicies(inboundID int, policies []model.C
 			if (action != "stop" && action != "throttle") || p.WindowExhaustUpKbps < 0 || p.WindowExhaustUpKbps > maxSpeedLimitKbps ||
 				p.WindowExhaustDownKbps < 0 || p.WindowExhaustDownKbps > maxSpeedLimitKbps ||
 				(action == "throttle" && (p.WindowExhaustUpKbps == 0 || p.WindowExhaustDownKbps == 0)) ||
-				multiplier < 10000 || multiplier > 1000000 {
+				multiplier < model.DefaultOverageMultiplierBps || multiplier > model.MaxOverageMultiplierBps {
 				return fmt.Errorf("invalid window exhaust policy for client %q", p.Email)
 			}
 			if err := tx.Model(&model.ClientInbound{}).

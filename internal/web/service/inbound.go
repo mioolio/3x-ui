@@ -1770,8 +1770,6 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	if err := validateFinalMaskXmcProfiles(inbound.StreamSettings); err != nil {
 		return inbound, false, err
 	}
-	s.normalizeMtprotoSecret(inbound)
-
 	oldInbound, err := s.GetInbound(inbound.Id)
 	if err != nil {
 		return inbound, false, err
@@ -1796,31 +1794,6 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 		return inbound, false, err
 	}
 	inbound.SubSortIndex = normalizeSubSortIndex(inbound.SubSortIndex)
-
-	clients, err := s.GetClients(inbound)
-	if err != nil {
-		return inbound, false, err
-	}
-	if inbound.Protocol == model.Hysteria {
-		for _, client := range clients {
-			if client.Auth == "" {
-				return inbound, false, common.NewError("empty client ID")
-			}
-		}
-	}
-	if inbound.Protocol == model.TUIC {
-		for _, client := range clients {
-			if client.ID == "" {
-				return inbound, false, common.NewError("empty client ID")
-			}
-			if client.Password == "" {
-				return inbound, false, common.NewError("tuic client requires a password")
-			}
-			if client.Email == "" {
-				return inbound, false, common.NewError("empty client email")
-			}
-		}
-	}
 
 	// Grandfather a row that was already stored incomplete so it stays editable;
 	// only a save that breaks a previously valid TLS block is refused.
@@ -1863,6 +1836,34 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 		}
 		if conflict != nil {
 			return common.NewError(conflict.String())
+		}
+		if err := s.reconcileInboundEditClients(tx, inbound); err != nil {
+			return err
+		}
+		s.normalizeMtprotoSecret(inbound)
+		clients, err := s.GetClients(inbound)
+		if err != nil {
+			return err
+		}
+		if inbound.Protocol == model.Hysteria {
+			for _, client := range clients {
+				if client.Auth == "" {
+					return common.NewError("empty client ID")
+				}
+			}
+		}
+		if inbound.Protocol == model.TUIC {
+			for _, client := range clients {
+				if client.ID == "" {
+					return common.NewError("empty client ID")
+				}
+				if client.Password == "" {
+					return common.NewError("tuic client requires a password")
+				}
+				if client.Email == "" {
+					return common.NewError("empty client email")
+				}
+			}
 		}
 		if err := s.updateClientTraffics(tx, oldInbound, inbound); err != nil {
 			return err

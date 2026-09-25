@@ -240,6 +240,14 @@ describe('transportless streamSettings (wireguard / tunnel)', () => {
 });
 
 describe('formValuesToWirePayload', () => {
+  it('omits clients for an inbound edit so a stale form cannot reset newer quotas', () => {
+    const values = rawInboundToFormValues(vlessRow);
+    const add = formValuesToWirePayload(values);
+    const edit = formValuesToWirePayload(values, { omitClients: true });
+    expect(JSON.parse(add.settings)).toHaveProperty('clients');
+    expect(JSON.parse(edit.settings)).not.toHaveProperty('clients');
+  });
+
   it('stringifies settings/streamSettings/sniffing with empty-array/default pruning', () => {
     const values = rawInboundToFormValues(vlessRow);
     const payload = formValuesToWirePayload(values);

@@ -311,7 +311,7 @@ func (s *ClientService) SetInboundWindowQuotas(email string, quotas map[int]Inbo
 			if multiplier == 0 {
 				multiplier = 10000
 			}
-			if (action != "stop" && action != "throttle") || up < 0 || up > maxSpeedLimitKbps || down < 0 || down > maxSpeedLimitKbps || (action == "throttle" && (up == 0 || down == 0)) || multiplier < 10000 || multiplier > 1000000 {
+			if (action != "stop" && action != "throttle") || up < 0 || up > maxSpeedLimitKbps || down < 0 || down > maxSpeedLimitKbps || (action == "throttle" && (up == 0 || down == 0)) || multiplier < model.DefaultOverageMultiplierBps || multiplier > model.MaxOverageMultiplierBps {
 				return fmt.Errorf("inbound %d has an invalid window exhaust policy", id)
 			}
 		}

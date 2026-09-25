@@ -34,6 +34,12 @@ import { HttpUtil, IntlUtil, RandomUtil, Wireguard } from '@/utils';
 import { getMessage } from '@/utils/messageBus';
 import { formatInboundOptionLabel } from '@/lib/inbounds/label';
 import { generateMtprotoSecret } from '@/lib/xray/inbound-defaults';
+import {
+  MAX_TRAFFIC_MULTIPLIER_BPS,
+  MAX_TRAFFIC_MULTIPLIER_INPUT,
+  trafficMultiplierBpsToInput,
+  trafficMultiplierInputToBps,
+} from '@/lib/xray/traffic-multiplier';
 import { normalizeClientIps, type ClientIpInfo } from '@/lib/clients/ip-log';
 import { resolveExternalLinkExpiry } from '@/lib/clients/external-link';
 import { useDatepicker } from '@/hooks/useDatepicker';
@@ -939,7 +945,8 @@ export default function ClientFormModal({
               (quota.windowExhaustAction === 'throttle' &&
                 (quota.windowExhaustUpKbps <= 0 || quota.windowExhaustDownKbps <= 0)) ||
               quota.windowOverageMultiplierBps < 10000 ||
-              quota.windowOverageMultiplierBps > 1000000)
+              quota.windowOverageMultiplierBps > MAX_TRAFFIC_MULTIPLIER_BPS ||
+              !Number.isSafeInteger(quota.windowOverageMultiplierBps))
           );
         })
     ) {
@@ -2108,18 +2115,20 @@ export default function ClientFormModal({
                                         label={t('pages.clients.policy.multiplier')}
                                         extra={t('pages.clients.policy.multiplierHint')}
                                       >
-                                        <InputNumber
-                                          value={quota.windowOverageMultiplierBps / 10000}
-                                          min={1}
-                                          max={100}
-                                          step={0.01}
-                                          precision={2}
+                                        <InputNumber<string>
+                                          stringMode
+                                          value={trafficMultiplierBpsToInput(
+                                            quota.windowOverageMultiplierBps,
+                                          )}
+                                          min="1"
+                                          max={MAX_TRAFFIC_MULTIPLIER_INPUT}
+                                          step="0.01"
+                                          precision={4}
                                           addonAfter="×"
                                           onChange={(value) =>
                                             update({
-                                              windowOverageMultiplierBps: Math.round(
-                                                (Number(value) || 1) * 10000,
-                                              ),
+                                              windowOverageMultiplierBps:
+                                                trafficMultiplierInputToBps(value),
                                             })
                                           }
                                           style={{ width: '100%' }}
